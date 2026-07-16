@@ -1,196 +1,91 @@
 (() => {
   "use strict";
   const mount = () => {
-  const boot = window.__CODEX_USAGE_BOOT__ || {};
-  if (window.__codexUsageRuntime && window.__codexUsageRuntime.destroy) window.__codexUsageRuntime.destroy();
+    const boot = window.__CODEX_USAGE_BOOT__ || {};
+    if (window.__codexUsageRuntime?.destroy) window.__codexUsageRuntime.destroy();
 
-  const state = {
-    snapshot: null,
-    history: new Map(),
-    anchors: new Map(),
-    observer: null,
-    frame: 0,
-    supported: !!boot.supported,
-  };
-  const host = document.createElement("div");
-  host.id = "codex-usage-monitor-runtime";
-  host.style.cssText = "position:fixed;inset:0;z-index:2147483000;pointer-events:none;font-family:system-ui,sans-serif";
-  document.documentElement.appendChild(host);
-  const shadow = host.attachShadow({mode: "closed"});
-  shadow.innerHTML = `
-    <style>
-      :host{all:initial;color-scheme:light dark}
-      #dock{position:fixed;pointer-events:auto;box-sizing:border-box;background:color-mix(in srgb,Canvas 94%,transparent);color:CanvasText;
-        border:1px solid color-mix(in srgb,CanvasText 18%,transparent);box-shadow:0 12px 36px #0003;backdrop-filter:blur(16px);
-        min-width:220px;min-height:120px;max-width:min(80vw,720px);max-height:90vh;overflow:auto;border-radius:12px;padding:10px}
-      #dock.right_dock{right:8px;top:54px;bottom:8px;resize:horizontal;direction:rtl} #dock.right_dock>*{direction:ltr}
-      #dock.left_dock{left:8px;top:54px;bottom:8px;resize:horizontal}
-      #dock.bottom_dock{left:8px;right:8px;bottom:8px;resize:vertical}
-      #dock.floating{right:24px;bottom:24px;resize:both;height:260px}
-      header{display:flex;align-items:center;gap:8px;position:sticky;top:0;background:Canvas;padding:4px 2px 8px;z-index:2}
-      header strong{flex:1;font-size:13px} button{font:inherit;border:0;border-radius:6px;padding:3px 7px;background:color-mix(in srgb,CanvasText 9%,transparent);color:inherit;cursor:pointer}
-      #notice{font-size:11px;padding:7px;border-radius:7px;background:#b7791f22;color:#b7791f;margin-bottom:8px}
-      .metric{display:grid;grid-template-columns:1fr auto;gap:8px;font-size:12px;padding:4px 2px;border-bottom:1px solid color-mix(in srgb,CanvasText 9%,transparent)}
-      .muted{opacity:.62}.bar{height:5px;background:color-mix(in srgb,CanvasText 12%,transparent);border-radius:9px;overflow:hidden;margin:3px 0 7px}.bar i{display:block;height:100%;background:#10a37f}
-      .footer{position:fixed;pointer-events:none;box-sizing:border-box;border-radius:7px;padding:4px 8px;font-size:11px;line-height:16px;
-        background:color-mix(in srgb,Canvas 92%,transparent);color:color-mix(in srgb,CanvasText 72%,transparent);border:1px solid color-mix(in srgb,CanvasText 10%,transparent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-      iframe{width:100%;border:0;min-height:100px;background:transparent}
-      #widgets{display:flex;flex-direction:column;gap:8px}.widget{pointer-events:auto;border:1px solid color-mix(in srgb,CanvasText 10%,transparent);border-radius:8px;padding:7px;font-size:12px;background:Canvas;color:CanvasText}
-      .widget>header{position:static;padding:0 0 6px;font-size:11px}.widget>header span{flex:1}.widget.floating{position:fixed;right:24px;bottom:24px;width:320px;max-height:70vh;overflow:auto;box-shadow:0 12px 36px #0004}.widget.modal{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(560px,80vw);max-height:80vh;overflow:auto;box-shadow:0 18px 60px #0006}
-    </style>
-    <aside id="dock"><header><strong>Codex Usage</strong><button id="move" title="Move dock">⇆</button><button id="collapse" title="Collapse">−</button></header>
-      <div id="notice" hidden></div><div id="metrics"></div><div id="widgets"></div></aside><div id="footers"></div>`;
-  const dock = shadow.getElementById("dock");
-  const metrics = shadow.getElementById("metrics");
-  const notice = shadow.getElementById("notice");
-  const footers = shadow.getElementById("footers");
-  const widgetsRoot = shadow.getElementById("widgets");
-  const appRoot = document.getElementById("root");
-  const originalRootStyle = appRoot ? {
-    width: appRoot.style.width, maxWidth: appRoot.style.maxWidth, height: appRoot.style.height,
-    maxHeight: appRoot.style.maxHeight, marginLeft: appRoot.style.marginLeft,
-  } : null;
-  const positions = ["right_dock", "bottom_dock", "left_dock", "floating"];
-  let position = localStorage.getItem("codexUsageDockPosition") || boot.dockPosition || "right_dock";
-  if (!positions.includes(position)) position = "right_dock";
-  dock.className = position;
-  function applyDockDimensions(){if(position==="bottom_dock"){dock.style.width="";dock.style.height=`${Math.max(120,Number(localStorage.getItem("codexUsageDockHeight"))||220)}px`;}else{dock.style.width=`${Math.max(220,Number(localStorage.getItem("codexUsageDockSize"))||boot.dockSize||340)}px`;dock.style.height="";}}
-  applyDockDimensions();
-  dock.addEventListener("mouseup", () => {const rect=dock.getBoundingClientRect();localStorage.setItem("codexUsageDockSize",String(rect.width));localStorage.setItem("codexUsageDockHeight",String(rect.height));applyLayout();});
-  shadow.getElementById("move").onclick = () => {
-    position = positions[(positions.indexOf(position) + 1) % positions.length];
-    dock.className = position;applyDockDimensions();localStorage.setItem("codexUsageDockPosition", position);applyLayout();
-  };
-  shadow.getElementById("collapse").onclick = event => {
-    const collapsed = dock.dataset.collapsed === "1";
-    dock.dataset.collapsed = collapsed ? "0" : "1";
-    metrics.hidden = !collapsed; widgetsRoot.hidden = !collapsed; notice.hidden = collapsed || state.supported;
-    event.currentTarget.textContent = collapsed ? "−" : "+";
-    requestAnimationFrame(applyLayout);
-  };
-  if (!state.supported) {
-    notice.hidden = false;
-    notice.textContent = "Compatibility mode: persistent dock is active; message footers are disabled for this Codex version.";
-  }
-  function restoreRootLayout(){if(!appRoot||!originalRootStyle)return;for(const [key,value] of Object.entries(originalRootStyle))appRoot.style[key]=value;}
-  function applyLayout(){
-    if(!appRoot)return;
-    restoreRootLayout();
-    if(boot.layoutMode==="overlay"||position==="floating")return;
-    const rect=dock.getBoundingClientRect(),gap=16;
-    if(position==="right_dock"){const reserved=Math.ceil(rect.width+gap);appRoot.style.width=`calc(100vw - ${reserved}px)`;appRoot.style.maxWidth=`calc(100vw - ${reserved}px)`;}
-    else if(position==="left_dock"){const reserved=Math.ceil(rect.width+gap);appRoot.style.width=`calc(100vw - ${reserved}px)`;appRoot.style.maxWidth=`calc(100vw - ${reserved}px)`;appRoot.style.marginLeft=`${reserved}px`;}
-    else if(position==="bottom_dock"){const reserved=Math.ceil(rect.height+gap);appRoot.style.height=`calc(100vh - ${reserved}px)`;appRoot.style.maxHeight=`calc(100vh - ${reserved}px)`;}
-  }
-  const dockResizeObserver=new ResizeObserver(()=>{applyLayout();updateFooters();});dockResizeObserver.observe(dock);requestAnimationFrame(applyLayout);
+    const state = {snapshot:null, history:new Map(), anchors:new Map(), reported:new Map(), observer:null, frame:0, supported:!!boot.supported};
+    const host = document.createElement("div");
+    host.id = "codex-usage-monitor-runtime";
+    host.style.cssText = "position:fixed;inset:0;z-index:2147483000;pointer-events:none";
+    document.documentElement.appendChild(host);
+    const shadow = host.attachShadow({mode:"closed"});
+    const pageStyle = getComputedStyle(document.body || document.documentElement);
+    const rootStyle = getComputedStyle(document.getElementById("root") || document.documentElement);
+    const pageBg = opaqueColor(pageStyle.backgroundColor) || opaqueColor(rootStyle.backgroundColor) || "#171717";
+    const pageFg = opaqueColor(pageStyle.color) || opaqueColor(rootStyle.color) || "#f2f2f2";
+    host.style.setProperty("--cum-bg", pageBg);
+    host.style.setProperty("--cum-fg", pageFg);
+    shadow.innerHTML = `
+      <style>
+        :host{all:initial;color-scheme:light dark;--surface:color-mix(in srgb,var(--cum-bg) 94%,var(--cum-fg) 6%);--muted:color-mix(in srgb,var(--cum-fg) 62%,transparent);--line:color-mix(in srgb,var(--cum-fg) 10%,transparent)}
+        *{box-sizing:border-box} #dock{position:fixed;pointer-events:auto;color:var(--cum-fg);background:var(--surface);border:0 solid var(--line);font:12px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;min-width:224px;min-height:96px;max-width:min(80vw,720px);max-height:100vh;overflow:auto;padding:10px 12px}
+        #dock.right_dock{right:0;top:0;bottom:0;border-left-width:1px;resize:horizontal;direction:rtl} #dock.right_dock>*{direction:ltr}
+        #dock.left_dock{left:0;top:0;bottom:0;border-right-width:1px;resize:horizontal}
+        #dock.bottom_dock{left:0;right:0;bottom:0;border-top-width:1px;resize:vertical}
+        #dock.floating{right:18px;bottom:18px;height:300px;resize:both;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px #0003}
+        #mainHeader{display:flex;align-items:center;gap:6px;position:sticky;top:-10px;margin:-10px -2px 4px;padding:12px 2px 8px;background:var(--surface);z-index:2}
+        #mainHeader strong{flex:1;font-size:12px;font-weight:600} button{font:inherit;line-height:1;border:0;border-radius:6px;padding:5px 7px;color:var(--muted);background:transparent;cursor:pointer} button:hover{color:var(--cum-fg);background:color-mix(in srgb,var(--cum-fg) 8%,transparent)}
+        #notice{font-size:11px;padding:7px 8px;border-radius:7px;background:color-mix(in srgb,#b7791f 14%,transparent);color:color-mix(in srgb,#f7b955 78%,var(--cum-fg));margin:6px 0}
+        .section{padding:7px 0 3px;border-top:1px solid var(--line)} .section:first-child{border-top:0}.sectionTitle{color:var(--muted);font-size:10px;font-weight:600;letter-spacing:.025em;margin:0 0 3px}
+        .metric{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:baseline;padding:2px 0}.metric span:first-child{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.metric strong{font-size:11px;font-weight:550}
+        .bar{height:3px;background:color-mix(in srgb,var(--cum-fg) 10%,transparent);border-radius:9px;overflow:hidden;margin:3px 0 5px}.bar i{display:block;height:100%;background:color-mix(in srgb,var(--cum-fg) 72%,transparent)}
+        .source{color:var(--muted);font-size:10px;padding-top:6px}.footer{position:fixed;pointer-events:none;padding:2px 0;font:11px/18px ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        iframe{width:100%;border:0;min-height:100px;background:transparent} #widgets{display:flex;flex-direction:column;gap:8px}.widget{pointer-events:auto;border-top:1px solid var(--line);padding:8px 0;font:12px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--cum-fg);background:transparent}.widget>header{display:flex;align-items:center;padding-bottom:6px;font-size:11px}.widget>header span{flex:1}.widget.floating,.widget.modal{padding:10px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 32px #0003}.widget.floating{position:fixed;right:18px;bottom:18px;width:320px;max-height:70vh;overflow:auto}.widget.modal{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(560px,80vw);max-height:80vh;overflow:auto}
+      </style>
+      <aside id="dock"><header id="mainHeader"><strong>Використання Codex</strong><button id="move" title="Змінити розташування">⇄</button><button id="collapse" title="Згорнути">−</button></header><div id="notice" hidden></div><div id="metrics"></div><div id="widgets"></div></aside><div id="footers"></div>`;
 
-  function percent(value) { const number = Number(value); return Number.isFinite(number) ? Math.max(0, Math.min(100, number)) : null; }
-  function compact(value) { const n=Number(value); if(!Number.isFinite(n)) return "unavailable"; return new Intl.NumberFormat(undefined,{notation:"compact",maximumFractionDigits:1}).format(n); }
-  function metric(label, value, progress) {
-    const p = percent(progress);
-    return `<div class="metric"><span>${label}</span><strong>${value}</strong></div>${p===null?"":`<div class="bar"><i style="width:${p}%"></i></div>`}`;
-  }
-  function rate(snapshot, kind) {
-    const values = Object.values((snapshot && snapshot.rates) || {});
-    return values.find(value => value.window_kind === kind) || null;
-  }
-  function render() {
-    const s=state.snapshot||{}, token=s.token||{}, primary=rate(s,"primary"), secondary=rate(s,"secondary");
-    metrics.innerHTML = metric("5h used", primary ? `${Number(primary.used_percent).toFixed(1)}%` : "unavailable", primary&&primary.used_percent)
-      + metric("Week used", secondary ? `${Number(secondary.used_percent).toFixed(1)}%` : "unavailable", secondary&&secondary.used_percent)
-      + metric("Latest model call", compact(token.last_total_tokens))
-      + metric("Thread tokens", compact(token.total_tokens))
-      + `<div class="metric muted"><span>Updated</span><span>${new Date().toLocaleTimeString()}</span></div>`;
-    updateFooters(); publishWidgets();
-  }
-  function footerText(snapshot) {
-    if (!snapshot) return "Codex usage · unavailable";
-    const token=snapshot.token||{}, primary=rate(snapshot,"primary"), secondary=rate(snapshot,"secondary");
-    return `Codex · call ${compact(token.last_total_tokens)} · thread ${compact(token.total_tokens)} · 5h ${primary?Number(primary.used_percent).toFixed(1)+"%":"—"} · week ${secondary?Number(secondary.used_percent).toFixed(1)+"%":"—"}`;
-  }
-  function templateValue(snapshot,key){const aliases={"thread.total_tokens":snapshot?.token?.total_tokens,"turn.total_tokens":snapshot?.token?.last_total_tokens,"primary.used_percent":rate(snapshot,"primary")?.used_percent,"secondary.used_percent":rate(snapshot,"secondary")?.used_percent};const value=aliases[key];return value==null?"unavailable":String(value);}
-  function footerMarkup(snapshot){const custom=(boot.widgets||[]).filter(w=>w.default_placement==="message_footer"&&w.content_type!=="javascript");if(!custom.length)return escapeHtml(footerText(snapshot));return custom.map(w=>String(w.source).replace(/\{([a-z0-9_.]+)\}/gi,(_,key)=>escapeHtml(templateValue(snapshot,key)))).join("");}
-  function escapeHtml(value){const span=document.createElement("span");span.textContent=String(value);return span.innerHTML;}
+    const dock=shadow.getElementById("dock"), metrics=shadow.getElementById("metrics"), notice=shadow.getElementById("notice"), footers=shadow.getElementById("footers"), widgetsRoot=shadow.getElementById("widgets");
+    const appRoot=document.getElementById("root");
+    const originalRootStyle=appRoot?{width:appRoot.style.width,maxWidth:appRoot.style.maxWidth,height:appRoot.style.height,maxHeight:appRoot.style.maxHeight,marginLeft:appRoot.style.marginLeft}:null;
+    const positions=["right_dock","bottom_dock","left_dock","floating"];
+    let position=localStorage.getItem("codexUsageDockPosition")||boot.dockPosition||"right_dock";
+    if(!positions.includes(position))position="right_dock";
+    dock.className=position;
+    function applyDockDimensions(){if(position==="bottom_dock"){dock.style.width="";dock.style.height=`${Math.max(120,Number(localStorage.getItem("codexUsageDockHeight"))||220)}px`;}else{dock.style.width=`${Math.max(224,Number(localStorage.getItem("codexUsageDockSize"))||boot.dockSize||340)}px`;dock.style.height="";}}
+    function restoreRootLayout(){if(!appRoot||!originalRootStyle)return;for(const [key,value] of Object.entries(originalRootStyle))appRoot.style[key]=value;}
+    function applyLayout(){if(!appRoot)return;restoreRootLayout();if(boot.layoutMode==="overlay"||position==="floating")return;const rect=dock.getBoundingClientRect();if(position==="right_dock"){appRoot.style.width=`calc(100vw - ${Math.ceil(rect.width)}px)`;appRoot.style.maxWidth=appRoot.style.width;}else if(position==="left_dock"){const n=Math.ceil(rect.width);appRoot.style.width=`calc(100vw - ${n}px)`;appRoot.style.maxWidth=appRoot.style.width;appRoot.style.marginLeft=`${n}px`;}else if(position==="bottom_dock"){appRoot.style.height=`calc(100vh - ${Math.ceil(rect.height)}px)`;appRoot.style.maxHeight=appRoot.style.height;}}
+    applyDockDimensions();
+    dock.addEventListener("mouseup",()=>{const rect=dock.getBoundingClientRect();localStorage.setItem("codexUsageDockSize",String(rect.width));localStorage.setItem("codexUsageDockHeight",String(rect.height));applyLayout();});
+    shadow.getElementById("move").onclick=()=>{position=positions[(positions.indexOf(position)+1)%positions.length];dock.className=position;applyDockDimensions();localStorage.setItem("codexUsageDockPosition",position);applyLayout();};
+    shadow.getElementById("collapse").onclick=event=>{const collapsed=dock.dataset.collapsed==="1";dock.dataset.collapsed=collapsed?"0":"1";metrics.hidden=!collapsed;widgetsRoot.hidden=!collapsed;notice.hidden=collapsed||state.supported;event.currentTarget.textContent=collapsed?"−":"+";requestAnimationFrame(applyLayout);};
+    if(!state.supported){notice.hidden=false;notice.textContent="Режим сумісності: панель працює, але footers вимкнені для цієї версії Codex.";}
+    const dockResizeObserver=new ResizeObserver(()=>{applyLayout();updateFooters();});dockResizeObserver.observe(dock);requestAnimationFrame(applyLayout);
 
-  function findFiber(element) { const key=Object.keys(element).find(name=>name.startsWith("__reactFiber$")||name.startsWith("__reactInternalInstance$")); return key?element[key]:null; }
-  function metadataFromFiber(fiber) {
-    let node=fiber, depth=0;
-    while(node && depth++<24) {
-      const props=node.memoizedProps||node.pendingProps;
-      const result=inspectProps(props,0,new Set()); if(result) return result;
-      node=node.return;
-    }
-    return null;
-  }
-  function inspectProps(value, depth, seen) {
-    if(!value||typeof value!=="object"||depth>3||seen.has(value)) return null; seen.add(value);
-    const type=value.type||value.item_type||value.itemType;
-    const phase=value.phase||value.messagePhase;
-    const itemId=value.item_id||value.itemId||value.id;
-    const threadId=value.thread_id||value.threadId;
-    const turnId=value.turn_id||value.turnId;
-    if((type==="assistant-message"||phase==="commentary"||phase==="final_answer") && itemId)
-      return {itemId:String(itemId),threadId:String(threadId||location.pathname),turnId:turnId?String(turnId):null,phase:String(phase||"unknown"),completed:!!(value.completed||value.isComplete||value.status==="completed")};
-    for(const key of Object.keys(value).slice(0,30)) {
-      if(/text|content|prompt|message|output|input/i.test(key)) continue;
-      const found=inspectProps(value[key],depth+1,seen); if(found) return found;
-    }
-    return null;
-  }
-  function scan() {
-    state.frame=0; if(!state.supported) return;
-    const next=new Map(), walker=document.createTreeWalker(document.body,NodeFilter.SHOW_ELEMENT); let element, count=0;
-    while((element=walker.nextNode()) && count++<12000) {
-      const fiber=findFiber(element); if(!fiber) continue;
-      const meta=metadataFromFiber(fiber); if(!meta || !(boot.footerPhases||[]).includes(meta.phase) || next.has(meta.itemId)) continue;
-      const container=containerFor(element); let slot=container.querySelector(`:scope > [data-codex-usage-slot="${CSS.escape(meta.itemId)}"]`);
-      if(!slot){slot=document.createElement("div");slot.dataset.codexUsageSlot=meta.itemId;slot.setAttribute("aria-hidden","true");slot.style.cssText="height:25px;min-height:25px;pointer-events:none";container.appendChild(slot);}
-      next.set(meta.itemId,{element:container,slot,meta});
-      if(!state.anchors.has(meta.itemId) || meta.completed) send({type:"item",...meta});
-    }
-    state.anchors=next; updateFooters();
-  }
-  function containerFor(element){let current=element;for(let i=0;i<7&&current.parentElement;i++){const style=getComputedStyle(current);const rect=current.getBoundingClientRect();if(style.display!=="inline"&&rect.width>180)return current;current=current.parentElement;}return element;}
-  function scheduleScan(){ if(!state.frame) state.frame=requestAnimationFrame(scan); }
-  function updateFooters() {
-    if(!state.supported) return;
-    const existing=new Map(Array.from(footers.children).map(node=>[node.dataset.itemId,node]));
-    for(const [itemId,anchor] of state.anchors) {
-      let footer=existing.get(itemId); if(!footer){footer=document.createElement("div");footer.className="footer";footer.dataset.itemId=itemId;footers.appendChild(footer);}
-      existing.delete(itemId); const rect=anchor.element.getBoundingClientRect(), slotRect=anchor.slot.getBoundingClientRect();
-      footer.style.left=`${Math.max(4,rect.left)}px`; footer.style.top=`${Math.max(4,slotRect.top+2)}px`; footer.style.width=`${Math.max(180,rect.width)}px`;
-      const historic=state.history.get(`${anchor.meta.threadId}:${itemId}`); footer.innerHTML=footerMarkup(historic?historic.snapshot:state.snapshot);
-      if(rect.bottom<0||rect.top>innerHeight) footer.hidden=true; else footer.hidden=false;
-    }
-    for(const footer of existing.values()) footer.remove();
-  }
-  function send(value){ try{ if(typeof window.__codexUsageHost==="function") window.__codexUsageHost(JSON.stringify(value)); }catch(_){} }
-  function renderWidgets(){
-    widgetsRoot.replaceChildren();shadow.querySelectorAll(".widget.floating,.widget.modal").forEach(node=>node.remove());
-    const storedOrder=JSON.parse(localStorage.getItem("codexUsageWidgetOrder")||"[]");const order=new Map(storedOrder.map((id,index)=>[id,index]));
-    const widgets=[...(boot.widgets||[])].sort((a,b)=>(order.get(a.id)??a.order)-(order.get(b.id)??b.order));
-    for(const widget of widgets) {
-      if(widget.default_placement==="message_footer") continue;
-      const wrap=document.createElement("section");let placement=localStorage.getItem(`codexUsageWidgetPlacement:${widget.id}`)||widget.default_placement;wrap.className=`widget ${placement}`;wrap.dataset.widgetId=widget.id;wrap.draggable=true;
-      const cardHeader=document.createElement("header"),label=document.createElement("span"),move=document.createElement("button");label.textContent=widget.name;move.textContent="↗";move.title="Move widget";cardHeader.append(label,move);wrap.appendChild(cardHeader);
-      move.onclick=()=>{const allowed=widget.placements.filter(p=>p!=="message_footer");placement=allowed[(allowed.indexOf(placement)+1)%allowed.length];localStorage.setItem(`codexUsageWidgetPlacement:${widget.id}`,placement);renderWidgets();};
-      wrap.ondragstart=event=>event.dataTransfer.setData("text/plain",widget.id);wrap.ondragover=event=>event.preventDefault();wrap.ondrop=event=>{event.preventDefault();const source=event.dataTransfer.getData("text/plain"),ids=widgets.map(w=>w.id),from=ids.indexOf(source),to=ids.indexOf(widget.id);if(from>=0&&to>=0){ids.splice(to,0,ids.splice(from,1)[0]);localStorage.setItem("codexUsageWidgetOrder",JSON.stringify(ids));renderWidgets();}};
-      if(widget.content_type==="javascript") {
-        const iframe=document.createElement("iframe");iframe.setAttribute("sandbox","allow-scripts");
-        const source=String(widget.source).replace(/<\/script/gi,"<\\/script");
-        iframe.srcdoc=`<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:"><style>body{font:12px system-ui;color:CanvasText;background:transparent;margin:0}</style><script>const api={getSnapshot:()=>new Promise(r=>{window.__resolve=r;parent.postMessage({source:'codex-usage-widget',type:'snapshot',id:${JSON.stringify(widget.id)}},'*')}),subscribeTelemetry:f=>addEventListener('message',e=>{if(e.data&&e.data.type==='telemetry')f(e.data.snapshot)}),getTheme:()=>matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light',requestResize:size=>parent.postMessage({source:'codex-usage-widget',type:'resize',id:${JSON.stringify(widget.id)},size},'*'),openSettings:()=>parent.postMessage({source:'codex-usage-widget',type:'settings',id:${JSON.stringify(widget.id)}},'*')};<\/script><script>${source}<\/script>`;
-        wrap.appendChild(iframe);
-      } else { wrap.innerHTML=widget.source; }
-      if(placement==="floating"||placement==="modal")shadow.appendChild(wrap);else{widgetsRoot.appendChild(wrap);if(positions.includes(placement)&&dock.className!==placement){dock.className=placement;position=placement;applyDockDimensions();applyLayout();}}
-    }
-  }
-  function publishWidgets(){ for(const frame of shadow.querySelectorAll(".widget iframe")) frame.contentWindow.postMessage({type:"telemetry",snapshot:state.snapshot},"*"); }
-  addEventListener("message",event=>{const data=event.data;if(!data||data.source!=="codex-usage-widget")return;const widget=(boot.widgets||[]).find(w=>w.id===data.id);const frame=widget&&shadow.querySelector(`[data-widget-id="${CSS.escape(data.id)}"] iframe`);if(!widget||event.source!==frame?.contentWindow)return;if(data.type==="resize")frame.style.height=`${Math.max(60,Math.min(600,Number(data.size&&data.size.height)||120))}px`;if(data.type==="snapshot")event.source.postMessage({type:"telemetry",snapshot:state.snapshot},"*");},false);
-  window.__codexUsageUpdate = payload => { state.snapshot=payload&&payload.snapshot; state.history=new Map((payload&&payload.history||[]).map(row=>[`${row.thread_id}:${row.item_id}`,row])); render(); };
-  state.observer=new MutationObserver(scheduleScan); state.observer.observe(document.documentElement,{childList:true,subtree:true});
-  addEventListener("scroll",updateFooters,true); addEventListener("resize",updateFooters); renderWidgets(); render(); scheduleScan(); send({type:"ready"});
-  window.__codexUsageRuntime={destroy(){state.observer&&state.observer.disconnect();dockResizeObserver.disconnect();restoreRootLayout();cancelAnimationFrame(state.frame);document.querySelectorAll("[data-codex-usage-slot]").forEach(node=>node.remove());host.remove();delete window.__codexUsageUpdate;}};
+    const locale=String(boot.locale||"uk").startsWith("uk")?"uk-UA":undefined;
+    function finite(value){const n=Number(value);return Number.isFinite(n)?n:null;}
+    function percent(value){const n=finite(value);return n===null?null:Math.max(0,Math.min(100,n));}
+    function pct(value){const n=finite(value);return n===null?"—":`${new Intl.NumberFormat(locale,{maximumFractionDigits:1,minimumFractionDigits:1}).format(n)}%`;}
+    function compact(value){const n=finite(value);return n===null?"—":new Intl.NumberFormat(locale,{notation:"compact",maximumFractionDigits:1}).format(n);}
+    function duration(value){let n=finite(value);if(n===null)return"—";n=Math.max(0,Math.round(n));const h=Math.floor(n/3600),m=Math.floor(n%3600/60),s=n%60;if(h)return`${h} год ${m} хв`;if(m)return`${m} хв ${s} с`;return`${s} с`;}
+    function countdown(timestamp){const left=finite(timestamp)?Number(timestamp)-Date.now()/1000:null;return left===null?"—":left<=0?"оновлюється":duration(left);}
+    function rateEntries(snapshot){return Object.values(snapshot?.rates||{}).filter(v=>finite(v?.used_percent)!==null).sort((a,b)=>(finite(a.window_minutes)||Infinity)-(finite(b.window_minutes)||Infinity));}
+    function rateLabel(rate){const mins=finite(rate?.window_minutes);if(mins!==null&&mins>=240&&mins<=360)return"5 год";if(mins!==null&&mins>=9360&&mins<=10800)return"тиждень";if(mins!==null&&mins%1440===0)return`${mins/1440} дн`;if(mins!==null&&mins%60===0)return`${mins/60} год`;return rate?.limit_name||rate?.window_kind||"ліміт";}
+    function remaining(rate){const used=percent(rate?.used_percent);return used===null?null:100-used;}
+    function metric(label,value,progress){const p=percent(progress);return`<div class="metric"><span>${label}</span><strong>${value}</strong></div>${p===null?"":`<div class="bar"><i style="width:${p}%"></i></div>`}`;}
+    function section(title,body){return body?`<section class="section"><div class="sectionTitle">${title}</div>${body}</section>`:"";}
+    function render(){const s=state.snapshot||{},v=s.view||{},token=s.token||{},turn=v.turn||{},context=v.context||{},tools=v.tools||{},rates=rateEntries(s);let limits=rates.map(r=>metric(`Залишок · ${rateLabel(r)}`,pct(remaining(r)),remaining(r))+`<div class="metric"><span>Скидання</span><strong>${countdown(r.resets_at)}</strong></div>`).join("");let request=metric("Час виконання",duration(turn.duration))+metric("Використано ліміту",turn.quota_primary_delta==null?"—":`≈${pct(turn.quota_primary_delta)}`)+metric("Останній model call",compact(token.last_total_tokens))+metric("Вхід / кеш",`${compact(token.last_input_tokens)} / ${compact(token.last_cached_input_tokens)}`)+metric("Вихід / reasoning",`${compact(token.last_output_tokens)} / ${compact(token.last_reasoning_output_tokens)}`);let ctx=metric("Залишок",pct(context.remaining_percent),context.remaining_percent)+metric("Зайнято / вікно",`${compact(context.used)} / ${compact(context.window)}`)+metric("Cache hit",pct(token.last_input_tokens?100*Number(token.last_cached_input_tokens||0)/Number(token.last_input_tokens):null));let task=metric("Сумарні токени Σ",compact(token.total_tokens));if(tools.total_calls!=null)task+=metric("Tool calls",`${tools.total_calls} · ✓${tools.successful_calls||0} · ×${tools.failed_calls||0}`);if(v.compactions?.count)task+=metric("Compactions",String(v.compactions.count));if(v.subagents?.started)task+=metric("Subagents",`${v.subagents.completed||0}/${v.subagents.started}`);let account="";if(v.account?.lifetime!=null)account=metric("Lifetime",compact(v.account.lifetime))+metric("7 днів",compact(v.account.seven_days))+metric("Streak",v.account.current_streak==null?"—":`${v.account.current_streak} дн`);const sources=[token.source,...rates.map(r=>r.source)].filter(Boolean);const provenance=sources.some(x=>String(x).includes("official"))?"official":sources.some(x=>String(x).includes("experimental"))?"experimental":"observed";metrics.innerHTML=section("ЛІМІТИ",limits||metric("Дані","недоступні"))+section("ПОТОЧНИЙ ЗАПИТ",request)+section("КОНТЕКСТ ≈",ctx)+section("TASK",task)+section("ACCOUNT",account)+`<div class="source">${provenance} · оновлено ${new Date().toLocaleTimeString(locale)}</div>`;updateFooters();publishWidgets();}
+    function footerText(snapshot,row){if(!snapshot)return"Codex · дані недоступні";const token=snapshot.token||{},v=snapshot.view||{},context=v.context||{},turn=v.turn||{},rates=rateEntries(snapshot),r=rates[0];const elapsed=row?.duration_seconds??turn.duration;const delta=turn.quota_primary_delta;return[`Codex`,`виклик ${compact(token.last_total_tokens)}`,`тред Σ ${compact(token.total_tokens)}`,`контекст ${pct(context.remaining_percent)} лишилось`,r?`${rateLabel(r)} ${pct(remaining(r))} лишилось`:null,delta==null?"запит —":`запит ≈${pct(delta)}`,`час ${duration(elapsed)}`].filter(Boolean).join(" · ");}
+    function templateValue(snapshot,key,row){const first=rateEntries(snapshot)[0],aliases={"thread.total_tokens":snapshot?.token?.total_tokens,"turn.total_tokens":snapshot?.token?.last_total_tokens,"context.remaining_percent":snapshot?.view?.context?.remaining_percent,"primary.remaining_percent":remaining(first),"turn.quota_delta":snapshot?.view?.turn?.quota_primary_delta,"turn.duration":row?.duration_seconds??snapshot?.view?.turn?.duration};const value=aliases[key];return value==null?"unavailable":String(value);}
+    function escapeHtml(value){const span=document.createElement("span");span.textContent=String(value);return span.innerHTML;}
+    function footerMarkup(snapshot,row){const custom=(boot.widgets||[]).filter(w=>w.default_placement==="message_footer"&&w.content_type!=="javascript");if(!custom.length)return escapeHtml(footerText(snapshot,row));return custom.map(w=>String(w.source).replace(/\{([a-z0-9_.]+)\}/gi,(_,key)=>escapeHtml(templateValue(snapshot,key,row)))).join("");}
+
+    function findFiber(element){const key=Object.keys(element).find(name=>name.startsWith("__reactFiber$")||name.startsWith("__reactInternalInstance$"));return key?element[key]:null;}
+    function metadataFromFiber(fiber){let node=fiber,depth=0;while(node&&depth++<24){const result=inspectProps(node.memoizedProps||node.pendingProps,0,new Set());if(result)return result;node=node.return;}return null;}
+    function inspectProps(value,depth,seen){if(!value||typeof value!=="object"||depth>3||seen.has(value))return null;seen.add(value);const type=value.type||value.item_type||value.itemType,phase=value.phase||value.messagePhase,itemId=value.item_id||value.itemId||value.id,threadId=value.thread_id||value.threadId,turnId=value.turn_id||value.turnId;if((type==="assistant-message"||phase==="commentary"||phase==="final_answer")&&itemId)return{itemId:String(itemId),threadId:String(threadId||location.pathname),turnId:turnId?String(turnId):null,phase:String(phase||"unknown"),completed:!!(value.completed||value.isComplete||value.status==="completed")};for(const key of Object.keys(value).slice(0,30)){if(/text|content|prompt|message|output|input/i.test(key))continue;const found=inspectProps(value[key],depth+1,seen);if(found)return found;}return null;}
+    function containerFor(element){let current=element;for(let i=0;i<7&&current.parentElement;i++){const style=getComputedStyle(current),rect=current.getBoundingClientRect();if(style.display!=="inline"&&rect.width>180)return current;current=current.parentElement;}return element;}
+    function scan(){state.frame=0;if(!state.supported)return;const next=new Map(),walker=document.createTreeWalker(document.body,NodeFilter.SHOW_ELEMENT);let element,count=0;while((element=walker.nextNode())&&count++<12000){const fiber=findFiber(element);if(!fiber)continue;const meta=metadataFromFiber(fiber);if(!meta||!(boot.footerPhases||[]).includes(meta.phase)||next.has(meta.itemId))continue;const container=containerFor(element);let slot=container.querySelector(`:scope > [data-codex-usage-slot="${CSS.escape(meta.itemId)}"]`);if(!slot){slot=document.createElement("div");slot.dataset.codexUsageSlot=meta.itemId;slot.setAttribute("aria-hidden","true");slot.style.cssText="height:22px;min-height:22px;pointer-events:none";container.appendChild(slot);}next.set(meta.itemId,{element:container,slot,meta});const signature=`${meta.phase}:${meta.completed}`;if(state.reported.get(meta.itemId)!==signature){state.reported.set(meta.itemId,signature);send({type:"item",...meta});}}state.anchors=next;updateFooters();}
+    function scheduleScan(){if(!state.frame)state.frame=requestAnimationFrame(scan);}
+    function updateFooters(){if(!state.supported)return;const existing=new Map(Array.from(footers.children).map(node=>[node.dataset.itemId,node]));for(const [itemId,anchor]of state.anchors){let footer=existing.get(itemId);if(!footer){footer=document.createElement("div");footer.className="footer";footer.dataset.itemId=itemId;footers.appendChild(footer);}existing.delete(itemId);const rect=anchor.element.getBoundingClientRect(),slotRect=anchor.slot.getBoundingClientRect();footer.style.left=`${Math.max(4,rect.left)}px`;footer.style.top=`${Math.max(4,slotRect.top+1)}px`;footer.style.width=`${Math.max(180,rect.width)}px`;const historic=state.history.get(`${anchor.meta.threadId}:${itemId}`);footer.innerHTML=footerMarkup(historic?.snapshot||state.snapshot,historic);footer.hidden=rect.bottom<0||rect.top>innerHeight;}for(const footer of existing.values())footer.remove();}
+    function send(value){try{if(typeof window.__codexUsageHost==="function")window.__codexUsageHost(JSON.stringify(value));}catch(_){}}
+
+    function renderWidgets(){widgetsRoot.replaceChildren();shadow.querySelectorAll(".widget.floating,.widget.modal").forEach(node=>node.remove());const storedOrder=JSON.parse(localStorage.getItem("codexUsageWidgetOrder")||"[]"),order=new Map(storedOrder.map((id,index)=>[id,index])),widgets=[...(boot.widgets||[])].sort((a,b)=>(order.get(a.id)??a.order)-(order.get(b.id)??b.order));for(const widget of widgets){if(widget.default_placement==="message_footer")continue;const wrap=document.createElement("section");let placement=localStorage.getItem(`codexUsageWidgetPlacement:${widget.id}`)||widget.default_placement;wrap.className=`widget ${placement}`;wrap.dataset.widgetId=widget.id;wrap.draggable=true;const cardHeader=document.createElement("header"),label=document.createElement("span"),move=document.createElement("button");label.textContent=widget.name;move.textContent="↗";cardHeader.append(label,move);wrap.appendChild(cardHeader);move.onclick=()=>{const allowed=widget.placements.filter(p=>p!=="message_footer");placement=allowed[(allowed.indexOf(placement)+1)%allowed.length];localStorage.setItem(`codexUsageWidgetPlacement:${widget.id}`,placement);renderWidgets();};if(widget.content_type==="javascript"){const iframe=document.createElement("iframe");iframe.setAttribute("sandbox","allow-scripts");const source=String(widget.source).replace(/<\/script/gi,"<\\/script");iframe.srcdoc=`<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:"><style>body{font:12px system-ui;color:CanvasText;background:transparent;margin:0}</style><script>const api={getSnapshot:()=>new Promise(r=>{window.__resolve=r;parent.postMessage({source:'codex-usage-widget',type:'snapshot',id:${JSON.stringify(widget.id)}},'*')}),subscribeTelemetry:f=>addEventListener('message',e=>{if(e.data&&e.data.type==='telemetry')f(e.data.snapshot)}),getTheme:()=>matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light',requestResize:size=>parent.postMessage({source:'codex-usage-widget',type:'resize',id:${JSON.stringify(widget.id)},size},'*'),openSettings:()=>parent.postMessage({source:'codex-usage-widget',type:'settings',id:${JSON.stringify(widget.id)}},'*')};<\/script><script>${source}<\/script>`;wrap.appendChild(iframe);}else{const content=document.createElement("div");content.innerHTML=widget.source;wrap.appendChild(content);}if(placement==="floating"||placement==="modal")shadow.appendChild(wrap);else widgetsRoot.appendChild(wrap);}}
+    function publishWidgets(){for(const frame of shadow.querySelectorAll(".widget iframe"))frame.contentWindow.postMessage({type:"telemetry",snapshot:state.snapshot},"*");}
+    addEventListener("message",event=>{const data=event.data;if(!data||data.source!=="codex-usage-widget")return;const widget=(boot.widgets||[]).find(w=>w.id===data.id),frame=widget&&shadow.querySelector(`[data-widget-id="${CSS.escape(data.id)}"] iframe`);if(!widget||event.source!==frame?.contentWindow)return;if(data.type==="resize")frame.style.height=`${Math.max(60,Math.min(600,Number(data.size?.height)||120))}px`;if(data.type==="snapshot")event.source.postMessage({type:"telemetry",snapshot:state.snapshot},"*");},false);
+    window.__codexUsageUpdate=payload=>{state.snapshot=payload?.snapshot;state.history=new Map((payload?.history||[]).map(row=>[`${row.thread_id}:${row.item_id}`,row]));render();};
+    state.observer=new MutationObserver(scheduleScan);state.observer.observe(document.documentElement,{childList:true,subtree:true});addEventListener("scroll",updateFooters,true);addEventListener("resize",updateFooters);renderWidgets();render();scheduleScan();send({type:"ready"});
+    window.__codexUsageRuntime={destroy(){state.observer?.disconnect();dockResizeObserver.disconnect();restoreRootLayout();cancelAnimationFrame(state.frame);document.querySelectorAll("[data-codex-usage-slot]").forEach(node=>node.remove());host.remove();delete window.__codexUsageUpdate;}};
   };
-  if (document.documentElement) mount();
-  else addEventListener("DOMContentLoaded", mount, {once:true});
+  function opaqueColor(value){return value&&!/rgba?\([^)]*,\s*0(?:\.0+)?\s*\)/.test(value)&&value!=="transparent"?value:null;}
+  if(document.documentElement)mount();else addEventListener("DOMContentLoaded",mount,{once:true});
 })();

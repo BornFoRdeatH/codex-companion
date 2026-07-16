@@ -120,6 +120,8 @@ CREATE TABLE IF NOT EXISTS ui_message_snapshots (
     turn_id TEXT,
     phase TEXT NOT NULL,
     completed INTEGER NOT NULL,
+    first_seen_at REAL,
+    completed_at REAL,
     observed_at REAL NOT NULL,
     snapshot_json TEXT NOT NULL,
     PRIMARY KEY(thread_id,item_id)
@@ -139,6 +141,10 @@ class Storage:
         self.conn.executescript(SCHEMA)
         self._ensure_column("rate_limit_snapshots", "reset_credit_count", "INTEGER")
         self._ensure_column("rate_limit_snapshots", "reset_credit_details_json", "TEXT")
+        self._ensure_column("ui_message_snapshots", "first_seen_at", "REAL")
+        self._ensure_column("ui_message_snapshots", "completed_at", "REAL")
+        self.conn.execute("UPDATE ui_message_snapshots SET first_seen_at=observed_at WHERE first_seen_at IS NULL")
+        self.conn.commit()
         self.set_meta("schema_version", "1")
 
     def _ensure_column(self, table: str, column: str, declaration: str) -> None:
@@ -386,12 +392,15 @@ class Storage:
         completed: bool,
         snapshot: dict[str, Any],
     ) -> None:
+        now = time.time()
         self.conn.execute(
-            """INSERT INTO ui_message_snapshots(thread_id,item_id,turn_id,phase,completed,observed_at,snapshot_json)
-               VALUES(?,?,?,?,?,?,?) ON CONFLICT(thread_id,item_id) DO UPDATE SET
+            """INSERT INTO ui_message_snapshots(thread_id,item_id,turn_id,phase,completed,first_seen_at,completed_at,observed_at,snapshot_json)
+               VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(thread_id,item_id) DO UPDATE SET
                turn_id=excluded.turn_id, phase=excluded.phase, completed=excluded.completed,
+               completed_at=CASE WHEN ui_message_snapshots.completed_at IS NULL THEN excluded.completed_at ELSE ui_message_snapshots.completed_at END,
                observed_at=excluded.observed_at, snapshot_json=excluded.snapshot_json""",
-            (thread_id, item_id, turn_id, phase, int(completed), time.time(), json.dumps(snapshot, separators=(",", ":"))),
+            (thread_id, item_id, turn_id, phase, int(completed), now, now if completed else None, now,
+             json.dumps(snapshot, separators=(",", ":"))),
         )
         self.conn.commit()
 
@@ -409,6 +418,9 @@ class Storage:
         for row in rows:
             value = dict(row)
             value["completed"] = bool(value["completed"])
+            end = value.get("completed_at") or time.time()
+            start = value.get("first_seen_at") or value.get("observed_at")
+            value["duration_seconds"] = max(0.0, end - start) if start else None
             try:
                 value["snapshot"] = json.loads(value.pop("snapshot_json"))
             except json.JSONDecodeError:
@@ -417,11 +429,24 @@ class Storage:
             result.append(value)
         return result
 
+    def refresh_completed_turn_snapshots(self, turn_id: str, snapshot: dict[str, Any]) -> int:
+        cursor = self.conn.execute(
+            """UPDATE ui_message_snapshots SET observed_at=?,snapshot_json=?
+               WHERE turn_id=? AND completed=1 AND phase='final_answer'""",
+            (time.time(), json.dumps(snapshot, separators=(",", ":")), turn_id),
+        )
+        self.conn.commit()
+        return cursor.rowcount
+
     def summary(self, session_id: str | None, turn_id: str | None) -> dict[str, Any]:
         token = self.latest_tokens(session_id)
         turn = self.conn.execute("SELECT * FROM turns WHERE turn_id=?", (turn_id,)).fetchone() if turn_id else None
         if not turn and session_id:
             turn = self.active_turn(session_id)
+        if not turn and not session_id:
+            turn = self.conn.execute(
+                "SELECT * FROM turns ORDER BY (ended_at IS NULL) DESC,started_at DESC LIMIT 1"
+            ).fetchone()
         rates = self.latest_rates()
         account = self.latest_account_usage()
         tools = None

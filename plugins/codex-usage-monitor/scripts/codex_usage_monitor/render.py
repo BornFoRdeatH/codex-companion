@@ -372,7 +372,11 @@ def _rate_label(rate: dict[str, Any]) -> str:
 def _delta(rate: dict[str, Any] | None, baseline: Any) -> float | None:
     if not rate or rate.get("used_percent") is None or baseline is None:
         return None
-    return float(rate["used_percent"]) - float(baseline)
+    delta = float(rate["used_percent"]) - float(baseline)
+    # A negative delta means the quota window reset during the turn. Without
+    # the pre-reset remainder, attributing a percentage to this request would
+    # be misleading.
+    return delta if delta >= 0 else None
 
 
 def _daily_buckets(account: dict[str, Any]) -> list[dict[str, Any]]:

@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from codex_usage_monitor.config import load_config
-from codex_usage_monitor.render import derive, progress, render, render_template
+from codex_usage_monitor.render import _delta, derive, progress, render, render_template
 from codex_usage_monitor.storage import Storage
 from codex_usage_monitor.transcript import TranscriptParser
 
@@ -54,6 +54,11 @@ class StorageTranscriptRenderTests(unittest.TestCase):
         self.assertEqual(summary["tools"]["file_edits"], 1)
         self.assertEqual(summary["tools"]["successful_calls"], 1)
 
+    def test_global_summary_uses_latest_turn_for_live_ui(self) -> None:
+        self.storage.upsert_session("s", None, "gpt-test", None)
+        self.storage.start_turn("t", "s")
+        self.assertEqual(self.storage.summary(None, None)["turn"]["turn_id"], "t")
+
     def test_templates_unicode_and_ascii_progress(self) -> None:
         self.assertEqual(progress(50, 4, True), "██░░")
         self.assertEqual(progress(50, 4, False), "##--")
@@ -72,6 +77,10 @@ class StorageTranscriptRenderTests(unittest.TestCase):
         rate = self.storage.latest_rates()[("codex", "primary")]
         self.assertEqual(rate["used_percent"], 25)
         self.assertEqual(rate["source"], "official_app_server")
+
+    def test_quota_delta_is_unavailable_across_a_reset(self) -> None:
+        self.assertEqual(_delta({"used_percent": 24}, 23), 1)
+        self.assertIsNone(_delta({"used_percent": 2}, 99))
 
 
 if __name__ == "__main__":

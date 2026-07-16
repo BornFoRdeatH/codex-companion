@@ -13,6 +13,7 @@ from .config import LoadedConfig
 from .storage import Storage
 from .ui_launcher import discover_codex_app, launch_codex, reserve_loopback_port
 from .widgets import load_widgets, markdown_to_html, sanitize_html
+from .render import derive
 
 
 BINDING = "__codexUsageHost"
@@ -136,12 +137,16 @@ class UiHost:
             "dockSize": self.config.get("ui.dock_size", 340),
             "layoutMode": self.config.get("ui.layout_mode", "reserve_space"),
             "footerPhases": self.config.get("ui.footer_phases", ["commentary", "final_answer"]),
+            "locale": self.config.get("locale.language", "uk"),
             "widgets": widgets,
             "security": self.config.get("ui.security", {}),
         }
 
     def _push_snapshot(self, connection: CdpConnection) -> None:
-        snapshot = self.storage.summary(None, None)
+        snapshot = self._summary_payload(None)
+        turn = snapshot.get("turn") or {}
+        if turn.get("turn_id") and turn.get("ended_at"):
+            self.storage.refresh_completed_turn_snapshots(str(turn["turn_id"]), snapshot)
         payload = {"snapshot": snapshot, "history": self.storage.message_snapshots(limit=500), "at": time.time()}
         expression = f"window.__codexUsageUpdate&&window.__codexUsageUpdate({json.dumps(payload, separators=(',', ':'))})"
         connection.call("Runtime.evaluate", {"expression": expression, "returnByValue": False}, timeout=1.0)
@@ -164,8 +169,13 @@ class UiHost:
                     str(message.get("turnId")) if message.get("turnId") else None,
                     str(message.get("phase") or "unknown"),
                     bool(message.get("completed")),
-                    self.storage.summary(None, message.get("turnId")),
+                    self._summary_payload(message.get("turnId")),
                 )
+
+    def _summary_payload(self, turn_id: str | None) -> dict[str, Any]:
+        summary = self.storage.summary(None, turn_id)
+        summary["view"] = derive(summary, self.config)
+        return summary
 
     def _write_status(self, **value: Any) -> None:
         self.plugin_data.mkdir(parents=True, exist_ok=True)

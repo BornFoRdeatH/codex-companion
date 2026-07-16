@@ -1,4 +1,4 @@
-# Codex Usage Monitor 0.2.1
+# Codex Usage Monitor 0.2.2
 
 Local Codex token, context, quota, operation, subagent, and account telemetry. Version 0.2 adds an
 optional runtime UI: a persistent resizable dock plus compact telemetry footers below commentary
@@ -48,6 +48,13 @@ not cover navigation, the composer, or message content. Set `layout_mode = "over
 overlay behavior; `floating` is always an overlay.
 Its layout is stored in renderer-local state. Completed-message snapshots are stored in the
 plugin SQLite database by `thread_id + item_id`; message text is never read or stored.
+
+The native-style footer distinguishes current context from cumulative task usage. It shows the
+latest model call, cumulative task tokens (`Σ`), estimated context remaining, rate-limit remaining,
+estimated quota delta for the current request (`≈`), and observed execution time. Rate-window
+labels come from `window_minutes`; a seven-day snapshot is never labeled as a five-hour window.
+The dock exposes the token breakdown, context window, cache hit, reset countdown, tools,
+compactions, subagents, account fields when available, and data provenance.
 
 ## Widgets
 

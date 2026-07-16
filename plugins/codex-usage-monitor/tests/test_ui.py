@@ -73,7 +73,37 @@ class UiTests(unittest.TestCase):
             rows = storage.message_snapshots("thread")
             self.assertEqual(rows[0]["snapshot"]["token"]["total_tokens"], 4)
             self.assertTrue(rows[0]["completed"])
+            self.assertIsNotNone(rows[0]["first_seen_at"])
+            self.assertIsNotNone(rows[0]["completed_at"])
+            self.assertGreaterEqual(rows[0]["duration_seconds"], 0)
             storage.close()
+
+    def test_message_snapshot_preserves_first_seen_and_completion_time(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            storage = Storage(Path(directory) / "usage.sqlite3")
+            storage.save_message_snapshot("thread", "item", "turn", "commentary", False, {})
+            first = storage.message_snapshots("thread")[0]["first_seen_at"]
+            storage.save_message_snapshot("thread", "item", "turn", "commentary", True, {})
+            row = storage.message_snapshots("thread")[0]
+            self.assertEqual(row["first_seen_at"], first)
+            self.assertIsNotNone(row["completed_at"])
+            storage.close()
+
+    def test_final_snapshot_can_be_refined_after_stop(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            storage = Storage(Path(directory) / "usage.sqlite3")
+            storage.save_message_snapshot("thread", "item", "turn", "final_answer", True, {"old": True})
+            self.assertEqual(storage.refresh_completed_turn_snapshots("turn", {"final": True}), 1)
+            self.assertEqual(storage.message_snapshots("thread")[0]["snapshot"], {"final": True})
+            storage.close()
+
+    def test_runtime_uses_dynamic_windows_remaining_and_native_style(self) -> None:
+        source = (Path(__file__).resolve().parents[1] / "ui" / "runtime.js").read_text(encoding="utf-8")
+        self.assertIn("window_minutes", source)
+        self.assertIn("лишилось", source)
+        self.assertIn("quota_primary_delta", source)
+        self.assertNotIn("5h used", source)
+        self.assertNotIn("backdrop-filter", source)
 
 
 if __name__ == "__main__":
