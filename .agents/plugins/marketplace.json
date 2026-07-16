@@ -2,7 +2,7 @@
   "name": "bornfordeath-plugins",
   "interface": {
     "displayName": "BornFoRdeatH Plugins",
-    "description": "Personal productivity plugins, including Codex Usage Monitor 0.2.2 runtime UI."
+    "description": "Personal productivity plugins, including Codex Usage Monitor 0.2.3 runtime UI."
   },
   "plugins": [
     {

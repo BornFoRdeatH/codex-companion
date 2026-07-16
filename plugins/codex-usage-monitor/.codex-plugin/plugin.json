@@ -1,6 +1,6 @@
 {
   "name": "codex-usage-monitor",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Local Codex telemetry with a memory-only runtime dock and message footers.",
   "author": {
     "name": "Local"

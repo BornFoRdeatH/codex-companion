@@ -18,6 +18,22 @@ from .ui_host import UiHost, fingerprint, load_adapters, match_adapter
 from .ui_launcher import discover_codex_app, install_launcher, status as ui_status, uninstall_launcher
 
 
+_ASCII_CONSOLE = str.maketrans({
+    "╭": "+", "╮": "+", "╰": "+", "╯": "+", "─": "-", "│": "|",
+    "·": ".", "≈": "~", "Δ": "delta ", "█": "#", "░": "-", "✓": "+", "×": "x",
+})
+
+
+def console_safe(value: str, encoding: str | None = None) -> str:
+    encoding = encoding or sys.stdout.encoding or "utf-8"
+    try:
+        value.encode(encoding)
+        return value
+    except (LookupError, UnicodeEncodeError):
+        fallback = value.translate(_ASCII_CONSOLE)
+        return fallback.encode(encoding, errors="replace").decode(encoding, errors="replace")
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(prog="usage-monitor")
     result.add_argument("--data-dir", type=Path)
@@ -92,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(details, indent=2, ensure_ascii=False))
                 return 0 if executable else 1
         if args.command == "status":
-            print(render(storage.summary(args.session_id, None), config, args.profile))
+            print(console_safe(render(storage.summary(args.session_id, None), config, args.profile)))
             return 0
         if args.command == "export-summary":
             print(json.dumps(storage.summary(args.session_id, None), indent=2, ensure_ascii=False, default=str))

@@ -1,4 +1,4 @@
-# Codex Usage Monitor 0.2.2
+# Codex Usage Monitor 0.2.3
 
 Local Codex token, context, quota, operation, subagent, and account telemetry. Version 0.2 adds an
 optional runtime UI: a persistent resizable dock plus compact telemetry footers below commentary

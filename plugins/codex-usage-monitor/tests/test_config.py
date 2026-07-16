@@ -5,12 +5,16 @@ import unittest
 from pathlib import Path
 
 from codex_usage_monitor.config import ConfigError, load_config
+from codex_usage_monitor.cli import console_safe
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 
 
 class ConfigTests(unittest.TestCase):
+    def test_console_output_falls_back_without_crashing_on_cp1251(self) -> None:
+        self.assertEqual(console_safe("╭─│≈█░", "cp1251"), "+-|~#-")
+
     def test_default_config_is_valid_and_created(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             loaded = load_config(PLUGIN_ROOT, Path(directory))
