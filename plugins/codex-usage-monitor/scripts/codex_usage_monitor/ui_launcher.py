@@ -167,7 +167,8 @@ def _ps(path: Path) -> str:
 def _user_visible_path(path: Path) -> Path:
     parts = path.parts
     if os.name == "nt" and len(parts) > 3 and parts[1].lower() == "users" and parts[2].lower().startswith("codexsandbox"):
-        return Path.home().joinpath(*parts[3:])
+        real_home = Path(os.environ.get("USERPROFILE") or Path.home())
+        return real_home.joinpath(*parts[3:])
     return path
 
 
