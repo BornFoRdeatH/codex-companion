@@ -90,6 +90,8 @@ def launcher_paths() -> list[Path]:
 def install_launcher(plugin_root: Path, plugin_data: Path) -> list[Path]:
     system = platform.system()
     paths = launcher_paths()
+    plugin_root = _user_visible_path(plugin_root)
+    plugin_data = _user_visible_path(plugin_data)
     script = plugin_root / "scripts" / ("usage-monitor.cmd" if system == "Windows" else "usage-monitor")
     executable = discover_codex_app(plugin_data)
     if executable:
@@ -160,6 +162,13 @@ def status(plugin_data: Path) -> dict[str, Any]:
 
 def _ps(path: Path) -> str:
     return str(path).replace("'", "''")
+
+
+def _user_visible_path(path: Path) -> Path:
+    parts = path.parts
+    if os.name == "nt" and len(parts) > 3 and parts[1].lower() == "users" and parts[2].lower().startswith("codexsandbox"):
+        return Path.home().joinpath(*parts[3:])
+    return path
 
 
 def _windows_running_paths() -> list[Path]:

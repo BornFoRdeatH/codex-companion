@@ -10,7 +10,7 @@ from unittest import mock
 from codex_usage_monitor.cdp import CdpError, CdpConnection
 from codex_usage_monitor.storage import Storage
 from codex_usage_monitor.ui_host import match_adapter
-from codex_usage_monitor.ui_launcher import discover_codex_app, reserve_loopback_port
+from codex_usage_monitor.ui_launcher import _user_visible_path, discover_codex_app, reserve_loopback_port
 from codex_usage_monitor.widgets import WidgetError, load_widgets, markdown_to_html, sanitize_html, validate_manifest
 
 
@@ -26,6 +26,11 @@ class UiTests(unittest.TestCase):
             executable.touch()
             with mock.patch.dict(os.environ, {"CODEX_DESKTOP_EXECUTABLE": str(executable)}):
                 self.assertEqual(discover_codex_app(), executable)
+
+    @unittest.skipUnless(os.name == "nt", "Windows path mapping")
+    def test_sandbox_path_is_mapped_to_real_home(self) -> None:
+        value = _user_visible_path(Path(r"C:\Users\CodexSandboxOffline\.codex\plugins\cache"))
+        self.assertEqual(value, Path.home() / ".codex" / "plugins" / "cache")
 
     def test_adapter_requires_hash_and_version(self) -> None:
         adapters = [{"id": "one", "app_asar_sha256": ["ABC"], "package_versions": ["1.0"]}]
