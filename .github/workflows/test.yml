@@ -17,8 +17,10 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Compile
+        working-directory: plugins/codex-usage-monitor
         run: python -m compileall -q scripts
       - name: Test
+        working-directory: plugins/codex-usage-monitor
         env:
           PYTHONPATH: scripts
           CODEX_USAGE_MONITOR_NO_COLLECTOR: "1"
