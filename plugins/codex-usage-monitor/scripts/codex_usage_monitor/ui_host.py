@@ -134,6 +134,7 @@ class UiHost:
             "adapter": adapter or {},
             "dockPosition": self.config.get("ui.dock_position", "right_dock"),
             "dockSize": self.config.get("ui.dock_size", 340),
+            "layoutMode": self.config.get("ui.layout_mode", "reserve_space"),
             "footerPhases": self.config.get("ui.footer_phases", ["commentary", "final_answer"]),
             "widgets": widgets,
             "security": self.config.get("ui.security", {}),

@@ -66,6 +66,9 @@ def _validate(data: dict[str, Any]) -> list[str]:
     if data["ui"]["dock_position"] not in {"right_dock", "left_dock", "bottom_dock", "floating"}:
         warnings.append("Invalid ui.dock_position; using right_dock")
         data["ui"]["dock_position"] = "right_dock"
+    if data["ui"]["layout_mode"] not in {"reserve_space", "overlay"}:
+        warnings.append("Invalid ui.layout_mode; using reserve_space")
+        data["ui"]["layout_mode"] = "reserve_space"
     if data["ui"]["unknown_version_policy"] not in {"dock_only", "disable"}:
         warnings.append("Invalid ui.unknown_version_policy; using dock_only")
         data["ui"]["unknown_version_policy"] = "dock_only"

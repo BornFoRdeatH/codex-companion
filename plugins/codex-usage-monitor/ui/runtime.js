@@ -25,7 +25,7 @@
         min-width:220px;min-height:120px;max-width:min(80vw,720px);max-height:90vh;overflow:auto;border-radius:12px;padding:10px}
       #dock.right_dock{right:8px;top:54px;bottom:8px;resize:horizontal;direction:rtl} #dock.right_dock>*{direction:ltr}
       #dock.left_dock{left:8px;top:54px;bottom:8px;resize:horizontal}
-      #dock.bottom_dock{left:12%;right:12%;bottom:8px;resize:vertical}
+      #dock.bottom_dock{left:8px;right:8px;bottom:8px;resize:vertical}
       #dock.floating{right:24px;bottom:24px;resize:both;height:260px}
       header{display:flex;align-items:center;gap:8px;position:sticky;top:0;background:Canvas;padding:4px 2px 8px;z-index:2}
       header strong{flex:1;font-size:13px} button{font:inherit;border:0;border-radius:6px;padding:3px 7px;background:color-mix(in srgb,CanvasText 9%,transparent);color:inherit;cursor:pointer}
@@ -45,26 +45,44 @@
   const notice = shadow.getElementById("notice");
   const footers = shadow.getElementById("footers");
   const widgetsRoot = shadow.getElementById("widgets");
+  const appRoot = document.getElementById("root");
+  const originalRootStyle = appRoot ? {
+    width: appRoot.style.width, maxWidth: appRoot.style.maxWidth, height: appRoot.style.height,
+    maxHeight: appRoot.style.maxHeight, marginLeft: appRoot.style.marginLeft,
+  } : null;
   const positions = ["right_dock", "bottom_dock", "left_dock", "floating"];
   let position = localStorage.getItem("codexUsageDockPosition") || boot.dockPosition || "right_dock";
   if (!positions.includes(position)) position = "right_dock";
   dock.className = position;
-  dock.style.width = `${Math.max(220, Number(localStorage.getItem("codexUsageDockSize")) || boot.dockSize || 340)}px`;
-  dock.addEventListener("mouseup", () => localStorage.setItem("codexUsageDockSize", String(dock.getBoundingClientRect().width)));
+  function applyDockDimensions(){if(position==="bottom_dock"){dock.style.width="";dock.style.height=`${Math.max(120,Number(localStorage.getItem("codexUsageDockHeight"))||220)}px`;}else{dock.style.width=`${Math.max(220,Number(localStorage.getItem("codexUsageDockSize"))||boot.dockSize||340)}px`;dock.style.height="";}}
+  applyDockDimensions();
+  dock.addEventListener("mouseup", () => {const rect=dock.getBoundingClientRect();localStorage.setItem("codexUsageDockSize",String(rect.width));localStorage.setItem("codexUsageDockHeight",String(rect.height));applyLayout();});
   shadow.getElementById("move").onclick = () => {
     position = positions[(positions.indexOf(position) + 1) % positions.length];
-    dock.className = position; localStorage.setItem("codexUsageDockPosition", position);
+    dock.className = position;applyDockDimensions();localStorage.setItem("codexUsageDockPosition", position);applyLayout();
   };
   shadow.getElementById("collapse").onclick = event => {
     const collapsed = dock.dataset.collapsed === "1";
     dock.dataset.collapsed = collapsed ? "0" : "1";
     metrics.hidden = !collapsed; widgetsRoot.hidden = !collapsed; notice.hidden = collapsed || state.supported;
     event.currentTarget.textContent = collapsed ? "−" : "+";
+    requestAnimationFrame(applyLayout);
   };
   if (!state.supported) {
     notice.hidden = false;
     notice.textContent = "Compatibility mode: persistent dock is active; message footers are disabled for this Codex version.";
   }
+  function restoreRootLayout(){if(!appRoot||!originalRootStyle)return;for(const [key,value] of Object.entries(originalRootStyle))appRoot.style[key]=value;}
+  function applyLayout(){
+    if(!appRoot)return;
+    restoreRootLayout();
+    if(boot.layoutMode==="overlay"||position==="floating")return;
+    const rect=dock.getBoundingClientRect(),gap=16;
+    if(position==="right_dock"){const reserved=Math.ceil(rect.width+gap);appRoot.style.width=`calc(100vw - ${reserved}px)`;appRoot.style.maxWidth=`calc(100vw - ${reserved}px)`;}
+    else if(position==="left_dock"){const reserved=Math.ceil(rect.width+gap);appRoot.style.width=`calc(100vw - ${reserved}px)`;appRoot.style.maxWidth=`calc(100vw - ${reserved}px)`;appRoot.style.marginLeft=`${reserved}px`;}
+    else if(position==="bottom_dock"){const reserved=Math.ceil(rect.height+gap);appRoot.style.height=`calc(100vh - ${reserved}px)`;appRoot.style.maxHeight=`calc(100vh - ${reserved}px)`;}
+  }
+  const dockResizeObserver=new ResizeObserver(()=>{applyLayout();updateFooters();});dockResizeObserver.observe(dock);requestAnimationFrame(applyLayout);
 
   function percent(value) { const number = Number(value); return Number.isFinite(number) ? Math.max(0, Math.min(100, number)) : null; }
   function compact(value) { const n=Number(value); if(!Number.isFinite(n)) return "unavailable"; return new Intl.NumberFormat(undefined,{notation:"compact",maximumFractionDigits:1}).format(n); }
@@ -163,7 +181,7 @@
         iframe.srcdoc=`<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:"><style>body{font:12px system-ui;color:CanvasText;background:transparent;margin:0}</style><script>const api={getSnapshot:()=>new Promise(r=>{window.__resolve=r;parent.postMessage({source:'codex-usage-widget',type:'snapshot',id:${JSON.stringify(widget.id)}},'*')}),subscribeTelemetry:f=>addEventListener('message',e=>{if(e.data&&e.data.type==='telemetry')f(e.data.snapshot)}),getTheme:()=>matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light',requestResize:size=>parent.postMessage({source:'codex-usage-widget',type:'resize',id:${JSON.stringify(widget.id)},size},'*'),openSettings:()=>parent.postMessage({source:'codex-usage-widget',type:'settings',id:${JSON.stringify(widget.id)}},'*')};<\/script><script>${source}<\/script>`;
         wrap.appendChild(iframe);
       } else { wrap.innerHTML=widget.source; }
-      if(placement==="floating"||placement==="modal")shadow.appendChild(wrap);else{widgetsRoot.appendChild(wrap);if(positions.includes(placement)&&dock.className!==placement){dock.className=placement;position=placement;}}
+      if(placement==="floating"||placement==="modal")shadow.appendChild(wrap);else{widgetsRoot.appendChild(wrap);if(positions.includes(placement)&&dock.className!==placement){dock.className=placement;position=placement;applyDockDimensions();applyLayout();}}
     }
   }
   function publishWidgets(){ for(const frame of shadow.querySelectorAll(".widget iframe")) frame.contentWindow.postMessage({type:"telemetry",snapshot:state.snapshot},"*"); }
@@ -171,7 +189,7 @@
   window.__codexUsageUpdate = payload => { state.snapshot=payload&&payload.snapshot; state.history=new Map((payload&&payload.history||[]).map(row=>[`${row.thread_id}:${row.item_id}`,row])); render(); };
   state.observer=new MutationObserver(scheduleScan); state.observer.observe(document.documentElement,{childList:true,subtree:true});
   addEventListener("scroll",updateFooters,true); addEventListener("resize",updateFooters); renderWidgets(); render(); scheduleScan(); send({type:"ready"});
-  window.__codexUsageRuntime={destroy(){state.observer&&state.observer.disconnect();cancelAnimationFrame(state.frame);document.querySelectorAll("[data-codex-usage-slot]").forEach(node=>node.remove());host.remove();delete window.__codexUsageUpdate;}};
+  window.__codexUsageRuntime={destroy(){state.observer&&state.observer.disconnect();dockResizeObserver.disconnect();restoreRootLayout();cancelAnimationFrame(state.frame);document.querySelectorAll("[data-codex-usage-slot]").forEach(node=>node.remove());host.remove();delete window.__codexUsageUpdate;}};
   };
   if (document.documentElement) mount();
   else addEventListener("DOMContentLoaded", mount, {once:true});

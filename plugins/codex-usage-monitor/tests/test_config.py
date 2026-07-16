@@ -39,6 +39,14 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaises(ConfigError):
                 load_config(PLUGIN_ROOT, path)
 
+    def test_invalid_ui_layout_falls_back_to_reserved_space(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            (path / "config.toml").write_text('schema_version=1\n[ui]\nlayout_mode="bad"\n', encoding="utf-8")
+            loaded = load_config(PLUGIN_ROOT, path)
+            self.assertEqual(loaded.get("ui.layout_mode"), "reserve_space")
+            self.assertTrue(any("ui.layout_mode" in item for item in loaded.warnings))
+
 
 if __name__ == "__main__":
     unittest.main()

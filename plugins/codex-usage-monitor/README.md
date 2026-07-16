@@ -1,4 +1,4 @@
-# Codex Usage Monitor 0.2
+# Codex Usage Monitor 0.2.1
 
 Local Codex token, context, quota, operation, subagent, and account telemetry. Version 0.2 adds an
 optional runtime UI: a persistent resizable dock plus compact telemetry footers below commentary
@@ -43,6 +43,9 @@ match an entry in `ui/adapters.json`. The included adapter supports Windows Code
 but no heuristic message selectors or footers. Run `ui adapters` to inspect the live fingerprint.
 
 The dock can be resized, collapsed, and moved among right, bottom, left, and floating placements.
+By default `layout_mode = "reserve_space"` shrinks the Codex `#root` viewport so docked panels do
+not cover navigation, the composer, or message content. Set `layout_mode = "overlay"` for the old
+overlay behavior; `floating` is always an overlay.
 Its layout is stored in renderer-local state. Completed-message snapshots are stored in the
 plugin SQLite database by `thread_id + item_id`; message text is never read or stored.
 
