@@ -30,7 +30,7 @@ rate_limits_min_interval_seconds = 5
 account_usage_min_interval_seconds = 300
 
 [display]
-enabled = true
+enabled = false
 destination = "system_message"
 default_profile = "adaptive"
 unicode_progress_bars = true
@@ -257,3 +257,24 @@ log_level = "warn"
 log_file = "${PLUGIN_DATA}/usage-monitor.log"
 show_collection_errors = true
 show_stale_data_age = true
+
+[ui]
+enabled = true
+default_layout = "dock_and_footers"
+dock_position = "right_dock"
+dock_size = 340
+footer_phases = ["commentary", "final_answer"]
+refresh_interval_ms = 200
+unknown_version_policy = "dock_only"
+suppress_hook_system_messages = true
+
+[ui.widgets]
+directories = ["${PLUGIN_ROOT}/ui/widgets", "${PLUGIN_DATA}/ui/widgets"]
+ordering = []
+hot_reload = true
+
+[ui.security]
+scripts_enabled = true
+page_dom_denied = true
+message_contents_denied = true
+network_denied = true

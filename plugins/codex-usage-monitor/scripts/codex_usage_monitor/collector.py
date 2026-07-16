@@ -103,8 +103,19 @@ def serve(plugin_root: Path, plugin_data: Path) -> int:
         storage.close()
 
 
+def find_codex_executable() -> str | None:
+    candidates = [
+        shutil.which("codex"),
+        str(Path.home() / ".codex" / "plugins" / ".plugin-appserver" / ("codex.exe" if os.name == "nt" else "codex")),
+    ]
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            return candidate
+    return None
+
+
 def _run_app_server(config: LoadedConfig, storage: Storage) -> int:
-    codex = shutil.which("codex")
+    codex = find_codex_executable()
     if not codex:
         storage.set_meta("collector_error", "codex executable not found")
         storage.set_meta("collector_retry_after", str(time.time() + 300))
@@ -150,7 +161,7 @@ def _run_app_server(config: LoadedConfig, storage: Storage) -> int:
                 "clientInfo": {
                     "name": "codex_usage_monitor",
                     "title": "Codex Usage Monitor",
-                    "version": "0.1.0",
+                    "version": "0.2.0",
                 }
             },
         }

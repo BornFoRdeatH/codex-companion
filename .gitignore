@@ -6,3 +6,4 @@ __pycache__/
 *.sqlite3-shm
 .test-data/
 .codex-test-home/
+.validation_deps/

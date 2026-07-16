@@ -1,7 +1,7 @@
 {
   "name": "codex-usage-monitor",
-  "version": "0.1.0",
-  "description": "Local Codex token, quota, context, operation, and account telemetry.",
+  "version": "0.2.0",
+  "description": "Local Codex telemetry with a memory-only runtime dock and message footers.",
   "author": {
     "name": "Local"
   },
@@ -16,12 +16,13 @@
   "interface": {
     "displayName": "Codex Usage Monitor",
     "shortDescription": "Local token, quota, and context telemetry",
-    "longDescription": "Shows configurable Codex usage telemetry through lifecycle hook system messages without adding monitor text to model context.",
+    "longDescription": "Shows configurable Codex usage telemetry in a persistent runtime dock and verified message footers without adding monitor text to model context.",
     "developerName": "Local",
     "category": "Productivity",
     "capabilities": [
       "Read",
-      "Analytics"
+      "Analytics",
+      "UI Extension"
     ],
     "defaultPrompt": [
       "Show my Codex usage monitor status.",

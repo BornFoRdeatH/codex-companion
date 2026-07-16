@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from codex_usage_monitor.collector import serve
+from codex_usage_monitor.paths import resolve_plugin_data
 
 
 def main() -> int:
@@ -13,11 +14,7 @@ def main() -> int:
     if not args.serve:
         parser.error("--serve is required")
     plugin_root = Path(os.environ.get("PLUGIN_ROOT") or Path(__file__).resolve().parents[1])
-    plugin_data = Path(
-        os.environ.get("PLUGIN_DATA")
-        or os.environ.get("CODEX_USAGE_MONITOR_DATA")
-        or Path.home() / ".codex" / "plugin-data" / "codex-usage-monitor"
-    )
+    plugin_data = resolve_plugin_data(plugin_root)
     return serve(plugin_root, plugin_data)
 
 

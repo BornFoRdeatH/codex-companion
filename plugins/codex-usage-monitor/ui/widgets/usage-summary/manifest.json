@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "id": "usage-summary",
+  "name": "Usage Summary",
+  "entry": "widget.html",
+  "content_type": "html",
+  "placements": ["right_dock", "left_dock", "bottom_dock", "floating"],
+  "default_placement": "right_dock",
+  "permissions": ["telemetry", "theme", "resize", "settings"],
+  "order": 10,
+  "size": {"width": 320, "height": 180}
+}

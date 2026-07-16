@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "adapters": [
+    {
+      "id": "windows-26.707.12708.0",
+      "package_versions": ["26.707.12708.0"],
+      "app_asar_sha256": ["DB455762A55503686015B34BF9BB8309E20A2FFD158BE297ADDF9CF528E21B59"],
+      "fiber_item_types": ["assistant-message"],
+      "phases": ["commentary", "final_answer"]
+    }
+  ]
+}

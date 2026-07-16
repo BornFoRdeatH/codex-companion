@@ -114,6 +114,17 @@ CREATE TABLE IF NOT EXISTS hook_events (
     observed_at REAL NOT NULL,
     duration_ms REAL
 );
+CREATE TABLE IF NOT EXISTS ui_message_snapshots (
+    thread_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    turn_id TEXT,
+    phase TEXT NOT NULL,
+    completed INTEGER NOT NULL,
+    observed_at REAL NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    PRIMARY KEY(thread_id,item_id)
+);
+CREATE INDEX IF NOT EXISTS ui_message_time ON ui_message_snapshots(observed_at);
 """
 
 
@@ -366,6 +377,46 @@ class Storage:
         )
         self.conn.commit()
 
+    def save_message_snapshot(
+        self,
+        thread_id: str,
+        item_id: str,
+        turn_id: str | None,
+        phase: str,
+        completed: bool,
+        snapshot: dict[str, Any],
+    ) -> None:
+        self.conn.execute(
+            """INSERT INTO ui_message_snapshots(thread_id,item_id,turn_id,phase,completed,observed_at,snapshot_json)
+               VALUES(?,?,?,?,?,?,?) ON CONFLICT(thread_id,item_id) DO UPDATE SET
+               turn_id=excluded.turn_id, phase=excluded.phase, completed=excluded.completed,
+               observed_at=excluded.observed_at, snapshot_json=excluded.snapshot_json""",
+            (thread_id, item_id, turn_id, phase, int(completed), time.time(), json.dumps(snapshot, separators=(",", ":"))),
+        )
+        self.conn.commit()
+
+    def message_snapshots(self, thread_id: str | None = None, limit: int = 500) -> list[dict[str, Any]]:
+        if thread_id:
+            rows = self.conn.execute(
+                "SELECT * FROM ui_message_snapshots WHERE thread_id=? ORDER BY observed_at DESC LIMIT ?",
+                (thread_id, limit),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM ui_message_snapshots ORDER BY observed_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+        result = []
+        for row in rows:
+            value = dict(row)
+            value["completed"] = bool(value["completed"])
+            try:
+                value["snapshot"] = json.loads(value.pop("snapshot_json"))
+            except json.JSONDecodeError:
+                value["snapshot"] = {}
+                value.pop("snapshot_json", None)
+            result.append(value)
+        return result
+
     def summary(self, session_id: str | None, turn_id: str | None) -> dict[str, Any]:
         token = self.latest_tokens(session_id)
         turn = self.conn.execute("SELECT * FROM turns WHERE turn_id=?", (turn_id,)).fetchone() if turn_id else None
@@ -412,7 +463,7 @@ class Storage:
 
     def prune(self, retention_days: int) -> None:
         cutoff = time.time() - max(1, retention_days) * 86400
-        for table in ("token_snapshots", "rate_limit_snapshots", "account_usage_snapshots", "compactions", "hook_events"):
+        for table in ("token_snapshots", "rate_limit_snapshots", "account_usage_snapshots", "compactions", "hook_events", "ui_message_snapshots"):
             self.conn.execute(f"DELETE FROM {table} WHERE observed_at < ?", (cutoff,))
         self.conn.execute("DELETE FROM turns WHERE ended_at IS NOT NULL AND ended_at < ?", (cutoff,))
         self.conn.execute("DELETE FROM tool_calls WHERE ended_at IS NOT NULL AND ended_at < ?", (cutoff,))

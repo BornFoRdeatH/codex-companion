@@ -12,6 +12,7 @@ from typing import Any
 from .collector import ensure_collector
 from .config import ConfigError, LoadedConfig, load_config
 from .render import content_hash, render
+from .paths import resolve_plugin_data
 from .storage import Storage
 from .transcript import TranscriptParser
 
@@ -46,11 +47,7 @@ def main() -> int:
     except (json.JSONDecodeError, OSError):
         payload = {}
     plugin_root = Path(os.environ.get("PLUGIN_ROOT") or Path(__file__).resolve().parents[2])
-    plugin_data = Path(
-        os.environ.get("PLUGIN_DATA")
-        or os.environ.get("CODEX_USAGE_MONITOR_DATA")
-        or Path.home() / ".codex" / "plugin-data" / "codex-usage-monitor"
-    )
+    plugin_data = resolve_plugin_data(plugin_root)
     response: dict[str, Any] = {"continue": True}
     storage: Storage | None = None
     try:
@@ -79,7 +76,8 @@ def main() -> int:
             ensure_collector(plugin_root, plugin_data, storage)
         _prune_if_due(storage, config)
         event_key = EVENT_CONFIG.get(event)
-        if event_key and config.get(f"display.events.{event_key}.enabled", False) and config.get("display.enabled", True):
+        ui_suppresses = config.get("ui.enabled", True) and config.get("ui.suppress_hook_system_messages", True)
+        if event_key and not ui_suppresses and config.get(f"display.events.{event_key}.enabled", False) and config.get("display.enabled", True):
             summary = storage.summary(session_id, turn_id)
             profile = config.get(f"display.events.{event_key}.profile", config.get("display.default_profile", "adaptive"))
             message = render(summary, config, profile)

@@ -63,11 +63,26 @@ def _validate(data: dict[str, Any]) -> list[str]:
     if data["data_sources"]["thread_usage_strategy"] not in {"auto", "transcript", "estimate", "off"}:
         warnings.append("Invalid data_sources.thread_usage_strategy; using auto")
         data["data_sources"]["thread_usage_strategy"] = "auto"
+    if data["ui"]["dock_position"] not in {"right_dock", "left_dock", "bottom_dock", "floating"}:
+        warnings.append("Invalid ui.dock_position; using right_dock")
+        data["ui"]["dock_position"] = "right_dock"
+    if data["ui"]["unknown_version_policy"] not in {"dock_only", "disable"}:
+        warnings.append("Invalid ui.unknown_version_policy; using dock_only")
+        data["ui"]["unknown_version_policy"] = "dock_only"
+    if data["ui"]["refresh_interval_ms"] < 100:
+        warnings.append("ui.refresh_interval_ms must be at least 100; using 200")
+        data["ui"]["refresh_interval_ms"] = 200
+    if data["ui"]["dock_size"] < 180:
+        warnings.append("ui.dock_size must be at least 180; using 340")
+        data["ui"]["dock_size"] = 340
     for key in ("progress_bar_width", "max_width", "max_lines"):
         if data["display"][key] < 1:
             warnings.append(f"display.{key} must be positive; using default")
     data["privacy"]["never_store_auth_tokens"] = True
     data["privacy"]["never_store_prompt_contents"] = True
+    data["ui"]["security"]["page_dom_denied"] = True
+    data["ui"]["security"]["message_contents_denied"] = True
+    data["ui"]["security"]["network_denied"] = True
     if data["storage"]["store_prompt_text"]:
         warnings.append("storage.store_prompt_text is disabled by privacy invariant")
         data["storage"]["store_prompt_text"] = False
@@ -98,8 +113,14 @@ def load_config(plugin_root: Path, plugin_data: Path, create: bool = True) -> Lo
             raise ConfigError(f"Cannot read {config_path}: {exc}") from exc
     data, warnings = _merge(defaults, override)
     warnings.extend(_validate(data))
-    database = str(data["storage"]["database"]).replace("${PLUGIN_DATA}", str(plugin_data))
-    log_file = str(data["diagnostics"]["log_file"]).replace("${PLUGIN_DATA}", str(plugin_data))
+    def expand(value: str) -> str:
+        return os.path.expandvars(
+            value.replace("${PLUGIN_DATA}", str(plugin_data)).replace("${PLUGIN_ROOT}", str(plugin_root))
+        )
+
+    database = expand(str(data["storage"]["database"]))
+    log_file = expand(str(data["diagnostics"]["log_file"]))
     data["storage"]["database"] = os.path.expandvars(database)
     data["diagnostics"]["log_file"] = os.path.expandvars(log_file)
+    data["ui"]["widgets"]["directories"] = [expand(str(value)) for value in data["ui"]["widgets"]["directories"]]
     return LoadedConfig(data=data, path=config_path, warnings=tuple(warnings))

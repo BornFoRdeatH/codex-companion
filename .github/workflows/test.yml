@@ -19,6 +19,9 @@ jobs:
       - name: Compile
         working-directory: plugins/codex-usage-monitor
         run: python -m compileall -q scripts
+      - name: Validate runtime JavaScript
+        working-directory: plugins/codex-usage-monitor
+        run: node --check ui/runtime.js
       - name: Test
         working-directory: plugins/codex-usage-monitor
         env:
