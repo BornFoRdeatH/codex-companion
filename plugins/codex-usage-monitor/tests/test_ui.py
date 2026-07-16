@@ -29,7 +29,8 @@ class UiTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name == "nt", "Windows path mapping")
     def test_sandbox_path_is_mapped_to_real_home(self) -> None:
-        value = _user_visible_path(Path(r"C:\Users\CodexSandboxOffline\.codex\plugins\cache"))
+        reference = Path.home() / ".codex" / "plugins" / "data" / "codex-usage-monitor-market"
+        value = _user_visible_path(Path(r"C:\Users\CodexSandboxOffline\.codex\plugins\cache"), reference)
         self.assertEqual(value, Path.home() / ".codex" / "plugins" / "cache")
 
     def test_adapter_requires_hash_and_version(self) -> None:
