@@ -188,6 +188,7 @@ def render_template(template: str, data: dict[str, Any], config: LoadedConfig) -
     turn = data.get("turn") or {}
     thread = data.get("thread") or {}
     values = {
+        "primary.label": _rate_label(primary) if primary else "Primary",
         "primary.used_bar": progress(primary.get("used_percent"), width, unicode),
         "primary.remaining_bar": progress(primary.get("used_percent"), width, unicode, remaining=True),
         "primary.used_percent": _fmt(primary.get("used_percent")),
@@ -200,6 +201,7 @@ def render_template(template: str, data: dict[str, Any], config: LoadedConfig) -
         "secondary.remaining_percent": _fmt(100 - secondary["used_percent"] if secondary.get("used_percent") is not None else None),
         "secondary.reset_local": secondary.get("reset_local", "N/A"),
         "secondary.reset_in": secondary.get("reset_in", "N/A"),
+        "secondary.label": _rate_label(secondary) if secondary else "Secondary",
         "turn.total_tokens": compact_number(turn.get("total")),
         "turn.input_tokens": compact_number(turn.get("input")),
         "turn.cached_input_tokens": compact_number(turn.get("cached")),

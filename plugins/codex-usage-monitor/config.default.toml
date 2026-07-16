@@ -210,14 +210,14 @@ expensive_turn_tokens = 100000
 
 [format.compact]
 template = """
-Codex │ 5h {primary.remaining_bar} {primary.remaining_percent}% · {primary.reset_in} │ Week {secondary.remaining_bar} {secondary.remaining_percent}% · {secondary.reset_in} │ Turn {turn.total_tokens} │ Ctx {context.remaining_percent}%
+Codex │ {primary.label} {primary.remaining_bar} {primary.remaining_percent}% · {primary.reset_in} │ {secondary.label} {secondary.remaining_bar} {secondary.remaining_percent}% · {secondary.reset_in} │ Turn {turn.total_tokens} │ Ctx {context.remaining_percent}%
 """
 
 [format.normal]
 template = """
 Codex usage
-5h   {primary.used_bar} {primary.used_percent}% used · reset {primary.reset_local} ({primary.reset_in})
-Week {secondary.used_bar} {secondary.used_percent}% used · reset {secondary.reset_local} ({secondary.reset_in})
+{primary.label} {primary.used_bar} {primary.used_percent}% used · reset {primary.reset_local} ({primary.reset_in})
+{secondary.label} {secondary.used_bar} {secondary.used_percent}% used · reset {secondary.reset_local} ({secondary.reset_in})
 Turn {turn.total_tokens} · in {turn.input_tokens} · cached {turn.cached_input_tokens} · out {turn.output_tokens}
 Thread {thread.total_tokens} · Context {context.used_percent}% used
 """

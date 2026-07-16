@@ -115,6 +115,7 @@ def load_config(plugin_root: Path, plugin_data: Path, create: bool = True) -> Lo
         except (OSError, tomllib.TOMLDecodeError) as exc:
             raise ConfigError(f"Cannot read {config_path}: {exc}") from exc
     data, warnings = _merge(defaults, override)
+    _migrate_legacy_rate_labels(data)
     warnings.extend(_validate(data))
     def expand(value: str) -> str:
         return os.path.expandvars(
@@ -127,3 +128,16 @@ def load_config(plugin_root: Path, plugin_data: Path, create: bool = True) -> Lo
     data["diagnostics"]["log_file"] = os.path.expandvars(log_file)
     data["ui"]["widgets"]["directories"] = [expand(str(value)) for value in data["ui"]["widgets"]["directories"]]
     return LoadedConfig(data=data, path=config_path, warnings=tuple(warnings))
+
+
+def _migrate_legacy_rate_labels(data: dict[str, Any]) -> None:
+    """Keep customized v1 templates but replace the old fixed window captions."""
+    for profile in ("compact", "normal", "full", "adaptive"):
+        section = data.get("format", {}).get(profile)
+        if not isinstance(section, dict) or not isinstance(section.get("template"), str):
+            continue
+        value = section["template"]
+        value = value.replace("5h {primary.", "{primary.label} {primary.")
+        value = value.replace("5h   {primary.", "{primary.label} {primary.")
+        value = value.replace("Week {secondary.", "{secondary.label} {secondary.")
+        section["template"] = value

@@ -15,6 +15,19 @@ class ConfigTests(unittest.TestCase):
     def test_console_output_falls_back_without_crashing_on_cp1251(self) -> None:
         self.assertEqual(console_safe("╭─│≈█░", "cp1251"), "+-|~#-")
 
+    def test_legacy_fixed_rate_window_labels_are_migrated(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            (path / "config.toml").write_text(
+                'schema_version=1\n[format.compact]\ntemplate="5h {primary.used_percent} Week {secondary.used_percent}"\n',
+                encoding="utf-8",
+            )
+            loaded = load_config(PLUGIN_ROOT, path)
+            self.assertEqual(
+                loaded.get("format.compact.template"),
+                "{primary.label} {primary.used_percent} {secondary.label} {secondary.used_percent}",
+            )
+
     def test_default_config_is_valid_and_created(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             loaded = load_config(PLUGIN_ROOT, Path(directory))
