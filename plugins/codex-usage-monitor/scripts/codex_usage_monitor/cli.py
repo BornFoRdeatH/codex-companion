@@ -74,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
                     print(path)
                 return 0
             if args.ui_command == "uninstall":
-                removed = uninstall_launcher()
+                removed = uninstall_launcher(plugin_data)
                 print("\n".join(map(str, removed)) if removed else "No launcher was installed.")
                 return 0
             if args.ui_command == "status":

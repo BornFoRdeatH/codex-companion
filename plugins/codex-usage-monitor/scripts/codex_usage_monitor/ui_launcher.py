@@ -98,11 +98,18 @@ def install_launcher(plugin_root: Path, plugin_data: Path) -> list[Path]:
         plugin_data.mkdir(parents=True, exist_ok=True)
         (plugin_data / "ui-app-path.txt").write_text(str(executable), encoding="utf-8")
     if system == "Windows":
+        wrapper = plugin_data / "ui" / "codex-usage-ui.cmd"
+        wrapper.parent.mkdir(parents=True, exist_ok=True)
+        wrapper.write_text(
+            f'@echo off\r\npy -3 "{plugin_root / "scripts" / "usage_monitor.py"}" --data-dir "{plugin_data}" ui launch\r\n',
+            encoding="utf-8",
+        )
+        command_processor = Path(os.environ.get("COMSPEC", r"C:\Windows\System32\cmd.exe"))
         ps = (
             "$w=New-Object -ComObject WScript.Shell;"
             + ";".join(
-                f"$s=$w.CreateShortcut('{_ps(path)}');$s.TargetPath='{_ps(script)}';"
-                f"$s.Arguments='--data-dir \"{_ps(plugin_data)}\" ui launch';$s.WorkingDirectory='{_ps(plugin_root)}';"
+                f"$s=$w.CreateShortcut('{_ps(path)}');$s.TargetPath='{_ps(command_processor)}';"
+                f"$s.Arguments='/d /c \"\"{_ps(wrapper)}\"\"';$s.WorkingDirectory='{_ps(plugin_root)}';"
                 "$s.WindowStyle=7;$s.Description='Codex Usage Monitor runtime UI';$s.Save()"
                 for path in paths
             )
@@ -135,7 +142,7 @@ def install_launcher(plugin_root: Path, plugin_data: Path) -> list[Path]:
     return paths
 
 
-def uninstall_launcher() -> list[Path]:
+def uninstall_launcher(plugin_data: Path | None = None) -> list[Path]:
     removed: list[Path] = []
     for path in launcher_paths():
         if path.is_dir():
@@ -144,6 +151,9 @@ def uninstall_launcher() -> list[Path]:
         elif path.exists():
             path.unlink()
             removed.append(path)
+    if plugin_data:
+        wrapper = plugin_data / "ui" / "codex-usage-ui.cmd"
+        wrapper.unlink(missing_ok=True)
     return removed
 
 
