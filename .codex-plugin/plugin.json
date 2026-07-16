@@ -1,0 +1,33 @@
+{
+  "name": "codex-usage-monitor",
+  "version": "0.1.0",
+  "description": "Local Codex token, quota, context, operation, and account telemetry.",
+  "author": {
+    "name": "Local"
+  },
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "usage",
+    "telemetry",
+    "tokens",
+    "rate-limits"
+  ],
+  "interface": {
+    "displayName": "Codex Usage Monitor",
+    "shortDescription": "Local token, quota, and context telemetry",
+    "longDescription": "Shows configurable Codex usage telemetry through lifecycle hook system messages without adding monitor text to model context.",
+    "developerName": "Local",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Analytics"
+    ],
+    "defaultPrompt": [
+      "Show my Codex usage monitor status.",
+      "Validate my usage monitor configuration.",
+      "Explain unavailable usage monitor fields."
+    ],
+    "brandColor": "#10A37F"
+  }
+}

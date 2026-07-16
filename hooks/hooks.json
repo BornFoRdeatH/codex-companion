@@ -1,0 +1,115 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/scripts/hook.py\"",
+            "commandWindows": "py -3 \"${PLUGIN_ROOT}\\scripts\\hook.py\"",
+            "timeout": 10,
+            "statusMessage": "Loading Codex usage"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/scripts/hook.py\"",
+            "commandWindows": "py -3 \"${PLUGIN_ROOT}\\scripts\\hook.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/scripts/hook.py\"",
+            "commandWindows": "py -3 \"${PLUGIN_ROOT}\\scripts\\hook.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/scripts/hook.py\"",
+            "commandWindows": "py -3 \"${PLUGIN_ROOT}\\scripts\\hook.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/scripts/hook.py\"",
+            "commandWindows": "py -3 \"${PLUGIN_ROOT}\\scripts\\hook.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/scripts/hook.py\"",
+            "commandWindows": "py -3 \"${PLUGIN_ROOT}\\scripts\\hook.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/scripts/hook.py\"",
+            "commandWindows": "py -3 \"${PLUGIN_ROOT}\\scripts\\hook.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/scripts/hook.py\"",
+            "commandWindows": "py -3 \"${PLUGIN_ROOT}\\scripts\\hook.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/scripts/hook.py\"",
+            "commandWindows": "py -3 \"${PLUGIN_ROOT}\\scripts\\hook.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

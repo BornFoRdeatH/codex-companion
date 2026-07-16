@@ -1,0 +1,259 @@
+schema_version = 1
+enabled = true
+
+[locale]
+language = "uk"
+timezone = "Europe/Zaporozhye"
+number_format = "compact"
+decimal_places = 1
+date_format = "%d.%m.%Y %H:%M:%S"
+duration_format = "adaptive"
+
+[data_sources]
+rate_limits = true
+account_usage = true
+thread_usage = true
+session_transcript = true
+experimental_raw_events = false
+thread_usage_strategy = "auto"
+
+[refresh]
+on_session_start = true
+on_user_prompt = true
+on_tool_complete = true
+on_turn_stop = true
+on_subagent_stop = true
+on_pre_compact = true
+on_post_compact = true
+on_rate_limit_update = true
+rate_limits_min_interval_seconds = 5
+account_usage_min_interval_seconds = 300
+
+[display]
+enabled = true
+destination = "system_message"
+default_profile = "adaptive"
+unicode_progress_bars = true
+progress_bar_width = 12
+show_icons = true
+show_section_headers = true
+show_field_labels = true
+show_data_source_quality = true
+show_unavailable_fields = false
+show_zero_values = false
+show_unchanged_values = true
+max_width = 120
+max_lines = 40
+
+[display.events.session_start]
+enabled = true
+profile = "normal"
+
+[display.events.user_prompt]
+enabled = true
+profile = "compact"
+
+[display.events.tool_complete]
+enabled = true
+profile = "compact"
+only_when_changed = true
+minimum_token_delta = 1000
+minimum_quota_delta_percent = 0.1
+
+[display.events.turn_stop]
+enabled = true
+profile = "full"
+
+[display.events.subagent_stop]
+enabled = true
+profile = "normal"
+
+[display.events.pre_compact]
+enabled = true
+profile = "normal"
+
+[display.events.post_compact]
+enabled = true
+profile = "full"
+
+[fields.account]
+plan_type = true
+auth_mode = false
+workspace = false
+credits_balance = true
+
+[fields.rate_limits]
+enabled = true
+show_all_limit_buckets = true
+limit_id = true
+limit_name = true
+primary_window = true
+secondary_window = true
+used_percent = true
+remaining_percent = true
+progress_bar = true
+window_duration = true
+reset_local_time = true
+time_until_reset = true
+reached_type = true
+plan_type = true
+credits = true
+reset_credit_count = true
+reset_credit_details = true
+
+[fields.account_usage]
+enabled = true
+lifetime_tokens = true
+today_tokens = true
+yesterday_tokens = true
+last_7_days_tokens = true
+last_30_days_tokens = true
+daily_average = true
+peak_daily_tokens = true
+longest_running_turn = true
+current_streak_days = true
+longest_streak_days = true
+daily_buckets = false
+
+[fields.thread]
+enabled = true
+thread_id = false
+session_id = false
+model = true
+reasoning_effort = true
+total_tokens = true
+input_tokens = true
+cached_input_tokens = true
+uncached_input_tokens = true
+output_tokens = true
+reasoning_output_tokens = true
+cache_hit_percent = true
+context_window = true
+context_used_tokens = true
+context_used_percent = true
+context_remaining_tokens = true
+context_remaining_percent = true
+context_progress_bar = true
+compaction_count = true
+last_compaction_time = true
+
+[fields.turn]
+enabled = true
+turn_id = false
+duration = true
+model_calls = true
+total_tokens = true
+input_tokens = true
+cached_input_tokens = true
+uncached_input_tokens = true
+output_tokens = true
+reasoning_output_tokens = true
+cache_hit_percent = true
+quota_delta_primary = true
+quota_delta_secondary = true
+context_delta = true
+
+[fields.tools]
+enabled = true
+total_calls = true
+successful_calls = true
+failed_calls = true
+bash_calls = true
+file_edits = true
+mcp_calls = true
+web_searches = true
+computer_use_calls = true
+tool_duration = true
+slowest_tool = true
+modified_files = true
+modified_file_count = true
+
+[fields.subagents]
+enabled = true
+started = true
+completed = true
+active = true
+per_agent_tokens = true
+combined_tokens = true
+per_agent_duration = true
+per_agent_tool_calls = true
+
+[fields.performance]
+enabled = true
+tokens_per_second = true
+output_tokens_per_second = true
+average_tool_duration = true
+time_to_first_output = true
+model_time = true
+tool_time = true
+hook_time = true
+
+[fields.predictions]
+enabled = true
+quota_usage_per_hour = true
+quota_usage_last_15_minutes = true
+quota_usage_last_60_minutes = true
+projected_exhaustion_time = true
+projected_remaining_turns = true
+average_tokens_per_turn = true
+average_quota_delta_per_turn = true
+confidence = true
+
+[thresholds]
+quota_warning_percent = 70
+quota_critical_percent = 90
+context_warning_percent = 70
+context_critical_percent = 90
+low_cache_hit_percent = 50
+slow_turn_seconds = 120
+expensive_turn_tokens = 100000
+
+[format.compact]
+template = """
+Codex │ 5h {primary.remaining_bar} {primary.remaining_percent}% · {primary.reset_in} │ Week {secondary.remaining_bar} {secondary.remaining_percent}% · {secondary.reset_in} │ Turn {turn.total_tokens} │ Ctx {context.remaining_percent}%
+"""
+
+[format.normal]
+template = """
+Codex usage
+5h   {primary.used_bar} {primary.used_percent}% used · reset {primary.reset_local} ({primary.reset_in})
+Week {secondary.used_bar} {secondary.used_percent}% used · reset {secondary.reset_local} ({secondary.reset_in})
+Turn {turn.total_tokens} · in {turn.input_tokens} · cached {turn.cached_input_tokens} · out {turn.output_tokens}
+Thread {thread.total_tokens} · Context {context.used_percent}% used
+"""
+
+[storage]
+enabled = true
+backend = "sqlite"
+database = "${PLUGIN_DATA}/usage.sqlite3"
+retention_days = 365
+store_raw_events = false
+store_tool_inputs = false
+store_tool_outputs = false
+store_prompt_text = false
+store_assistant_text = false
+vacuum_on_start = false
+
+[privacy]
+redact_paths = true
+redact_usernames = true
+redact_commands = false
+redact_project_names = false
+never_store_auth_tokens = true
+never_store_prompt_contents = true
+
+[experimental]
+parse_session_jsonl = true
+follow_session_file = true
+raw_response_events = false
+infer_web_searches_from_transcript = true
+estimate_missing_tool_calls = true
+allow_unstable_schema = true
+show_experimental_marker = true
+
+[diagnostics]
+enabled = false
+log_level = "warn"
+log_file = "${PLUGIN_DATA}/usage-monitor.log"
+show_collection_errors = true
+show_stale_data_age = true
