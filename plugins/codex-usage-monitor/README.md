@@ -1,4 +1,4 @@
-# Codex Usage Monitor 0.2.4
+# Codex Usage Monitor 0.2.5
 
 Local Codex token, context, quota, operation, subagent, and account telemetry. Version 0.2 adds an
 optional runtime UI: a persistent resizable dock plus compact telemetry footers below commentary
@@ -32,8 +32,12 @@ scripts\usage-monitor.cmd ui doctor
 Fully close a normally launched Codex instance, then start **Codex Usage UI**. Codex must be started
 by this launcher because v0.2 deliberately does not attach to arbitrary existing processes.
 
-After updating the plugin, run `ui install` again so the shortcut points to the current installed
-plugin version. Remove it with `ui uninstall`.
+After updating the plugin, run `ui install` again to refresh the stable launcher bootstrap.
+Remove it with `ui uninstall`.
+
+Since 0.2.5 the installed shortcut calls a stable bootstrap under `%PLUGIN_DATA%/ui`. The bootstrap
+selects the newest intact marketplace cache entry at launch time, so removing an obsolete version
+directory no longer breaks the Desktop or Start Menu shortcut.
 
 ## Compatibility behavior
 

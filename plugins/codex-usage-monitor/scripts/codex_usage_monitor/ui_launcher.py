@@ -92,16 +92,19 @@ def install_launcher(plugin_root: Path, plugin_data: Path) -> list[Path]:
     paths = launcher_paths()
     plugin_data = _user_visible_path(plugin_data)
     plugin_root = _user_visible_path(plugin_root, plugin_data)
-    script = plugin_root / "scripts" / ("usage-monitor.cmd" if system == "Windows" else "usage-monitor")
+    launcher_dir = plugin_data / "ui"
+    launcher_dir.mkdir(parents=True, exist_ok=True)
+    bootstrap = launcher_dir / "launcher.py"
+    bootstrap.write_text(_bootstrap_source(_plugin_family(plugin_root), plugin_data), encoding="utf-8")
     executable = discover_codex_app(plugin_data)
     if executable:
         plugin_data.mkdir(parents=True, exist_ok=True)
         (plugin_data / "ui-app-path.txt").write_text(str(executable), encoding="utf-8")
     if system == "Windows":
-        wrapper = plugin_data / "ui" / "codex-usage-ui.cmd"
+        wrapper = launcher_dir / "codex-usage-ui.cmd"
         wrapper.parent.mkdir(parents=True, exist_ok=True)
         wrapper.write_text(
-            f'@echo off\r\npy -3 "{plugin_root / "scripts" / "usage_monitor.py"}" --data-dir "{plugin_data}" ui launch\r\n',
+            f'@echo off\r\npy -3 "{bootstrap}" %*\r\n',
             encoding="utf-8",
         )
         command_processor = Path(os.environ.get("COMSPEC", r"C:\Windows\System32\cmd.exe"))
@@ -109,7 +112,7 @@ def install_launcher(plugin_root: Path, plugin_data: Path) -> list[Path]:
             "$w=New-Object -ComObject WScript.Shell;"
             + ";".join(
                 f"$s=$w.CreateShortcut('{_ps(path)}');$s.TargetPath='{_ps(command_processor)}';"
-                f"$s.Arguments='/d /c \"\"{_ps(wrapper)}\"\"';$s.WorkingDirectory='{_ps(plugin_root)}';"
+                f"$s.Arguments='/d /c \"\"{_ps(wrapper)}\"\"';$s.WorkingDirectory='{_ps(launcher_dir)}';"
                 "$s.WindowStyle=7;$s.Description='Codex Usage Monitor runtime UI';$s.Save()"
                 for path in paths
             )
@@ -122,7 +125,7 @@ def install_launcher(plugin_root: Path, plugin_data: Path) -> list[Path]:
         macos = app / "Contents" / "MacOS"
         macos.mkdir(parents=True, exist_ok=True)
         executable = macos / "codex-usage-ui"
-        executable.write_text(f'#!/bin/sh\nexec "{script}" --data-dir "{plugin_data}" ui launch\n', encoding="utf-8")
+        executable.write_text(f'#!/bin/sh\nexec python3 "{bootstrap}"\n', encoding="utf-8")
         executable.chmod(0o755)
         (app / "Contents" / "Info.plist").write_text(
             """<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>
@@ -135,7 +138,7 @@ def install_launcher(plugin_root: Path, plugin_data: Path) -> list[Path]:
         desktop.parent.mkdir(parents=True, exist_ok=True)
         desktop.write_text(
             "[Desktop Entry]\nType=Application\nName=Codex Usage UI\n"
-            f'Exec="{script}" --data-dir "{plugin_data}" ui launch\nTerminal=false\nCategories=Development;Utility;\n',
+            f'Exec=python3 "{bootstrap}"\nTerminal=false\nCategories=Development;Utility;\n',
             encoding="utf-8",
         )
         desktop.chmod(0o755)
@@ -167,11 +170,58 @@ def status(plugin_data: Path) -> dict[str, Any]:
             value = {"error": "invalid status file"}
     value["launchers"] = [{"path": str(path), "installed": path.exists()} for path in launcher_paths()]
     value["codex_executable"] = str(discover_codex_app(plugin_data) or "")
+    launcher_error = plugin_data / "ui" / "launcher-error.log"
+    if launcher_error.is_file():
+        try:
+            value["launcher_error"] = launcher_error.read_text(encoding="utf-8")
+        except OSError:
+            value["launcher_error"] = "unreadable launcher error log"
     return value
 
 
 def _ps(path: Path) -> str:
     return str(path).replace("'", "''")
+
+
+def _plugin_family(plugin_root: Path) -> Path:
+    """Return a stable root that survives versioned plugin cache replacement."""
+    if "cache" in (part.lower() for part in plugin_root.parts) and plugin_root.parent.name == "codex-usage-monitor":
+        return plugin_root.parent
+    return plugin_root
+
+
+def _bootstrap_source(plugin_family: Path, plugin_data: Path) -> str:
+    return f'''from __future__ import annotations
+import os
+import sys
+from pathlib import Path
+
+family = Path({str(plugin_family)!r})
+error_log = Path({str(plugin_data / "ui" / "launcher-error.log")!r})
+direct = family / "scripts" / "usage_monitor.py"
+candidates = [family] if direct.is_file() else [
+    path for path in family.iterdir()
+    if path.is_dir() and (path / "scripts" / "usage_monitor.py").is_file()
+] if family.is_dir() else []
+if not candidates:
+    message = "Codex Usage Monitor is not installed. Reinstall the plugin and run ui install."
+    error_log.write_text(message, encoding="utf-8")
+    print(message, file=sys.stderr)
+    raise SystemExit(2)
+root = max(candidates, key=lambda path: ((path / "scripts" / "usage_monitor.py").stat().st_mtime, path.name))
+script = root / "scripts" / "usage_monitor.py"
+if "--check" in sys.argv:
+    print(script)
+    raise SystemExit(0)
+error_log.unlink(missing_ok=True)
+try:
+    os.execv(sys.executable, [sys.executable, str(script), "--data-dir", {str(plugin_data)!r}, "ui", "launch"])
+except OSError as exc:
+    message = f"Cannot launch Codex Usage Monitor: {{exc}}"
+    error_log.write_text(message, encoding="utf-8")
+    print(message, file=sys.stderr)
+    raise SystemExit(2)
+'''
 
 
 def _user_visible_path(path: Path, reference_data: Path | None = None) -> Path:

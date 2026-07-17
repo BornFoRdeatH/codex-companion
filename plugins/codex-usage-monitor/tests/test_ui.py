@@ -10,7 +10,9 @@ from unittest import mock
 from codex_usage_monitor.cdp import CdpError, CdpConnection
 from codex_usage_monitor.storage import Storage
 from codex_usage_monitor.ui_host import match_adapter
-from codex_usage_monitor.ui_launcher import _user_visible_path, discover_codex_app, reserve_loopback_port
+from codex_usage_monitor.ui_launcher import (
+    _bootstrap_source, _plugin_family, _user_visible_path, discover_codex_app, reserve_loopback_port,
+)
 from codex_usage_monitor.widgets import WidgetError, load_widgets, markdown_to_html, sanitize_html, validate_manifest
 
 
@@ -32,6 +34,17 @@ class UiTests(unittest.TestCase):
         reference = Path.home() / ".codex" / "plugins" / "data" / "codex-usage-monitor-market"
         value = _user_visible_path(Path(r"C:\Users\CodexSandboxOffline\.codex\plugins\cache"), reference)
         self.assertEqual(value, Path.home() / ".codex" / "plugins" / "cache")
+
+    def test_launcher_uses_stable_version_family_and_ignores_empty_cache_entries(self) -> None:
+        family = Path.home() / ".codex" / "plugins" / "cache" / "market" / "codex-usage-monitor"
+        version = family / "0.2.4"
+        self.assertEqual(_plugin_family(version), family)
+        source = _bootstrap_source(family, Path.home() / "data")
+        self.assertIn("usage_monitor.py\").is_file()", source)
+        self.assertIn("max(candidates", source)
+        self.assertIn('"--check" in sys.argv', source)
+        self.assertIn("launcher-error.log", source)
+        self.assertNotIn(str(version), source)
 
     def test_adapter_requires_hash_and_version(self) -> None:
         adapters = [{"id": "one", "app_asar_sha256": ["ABC"], "package_versions": ["1.0"]}]
