@@ -115,6 +115,9 @@ def _validate(data: dict[str, Any]) -> list[str]:
         warnings.append("ui.advisor.max_visible must be positive; using 1")
         advisor["max_visible"] = 1
     budget = data["ui"]["budget"]
+    if budget.get("optimizer_action_mode") not in {"advisory"}:
+        warnings.append("Invalid ui.budget.optimizer_action_mode; using advisory")
+        budget["optimizer_action_mode"] = "advisory"
     if budget["per_turn_tokens"] < 0:
         warnings.append("ui.budget.per_turn_tokens must be non-negative; using adaptive")
         budget["per_turn_tokens"] = 0
@@ -131,6 +134,20 @@ def _validate(data: dict[str, Any]) -> list[str]:
     if budget["baseline_window"] < budget["min_personal_turns"]:
         warnings.append("ui.budget.baseline_window must cover min_personal_turns; using 50")
         budget["baseline_window"] = 50
+    if budget.get("minimum_context_samples", 3) < 1:
+        warnings.append("ui.budget.minimum_context_samples must be positive; using 3")
+        budget["minimum_context_samples"] = 3
+    for key, fallback in (("context_warning_percent", 70), ("context_checkpoint_percent", 80),
+                          ("context_handoff_percent", 88), ("context_new_task_percent", 93),
+                          ("context_safety_reserve_percent", 5)):
+        if not 0 <= budget.get(key, fallback) <= 100:
+            warnings.append(f"ui.budget.{key} must be between 0 and 100; using {fallback}")
+            budget[key] = fallback
+    if not (budget["context_warning_percent"] <= budget["context_checkpoint_percent"]
+            <= budget["context_handoff_percent"] <= budget["context_new_task_percent"]):
+        warnings.append("Context optimizer thresholds must be ascending; using defaults")
+        budget.update({"context_warning_percent": 70, "context_checkpoint_percent": 80,
+                       "context_handoff_percent": 88, "context_new_task_percent": 93})
     if data["ui"]["projects"]["default_range"] not in {"7d", "30d", "90d", "all"}:
         warnings.append("Invalid ui.projects.default_range; using 30d")
         data["ui"]["projects"]["default_range"] = "30d"

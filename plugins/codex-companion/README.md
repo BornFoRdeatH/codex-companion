@@ -23,6 +23,28 @@ renderer memory to numeric length/line/section/task counts; prompt text is never
 stored, or used to block submission. Project Insights groups data only by `cwd_hash`; a folder
 basename is shown transiently and becomes persistent only after the user confirms a local alias.
 
+The Context Budget Optimizer extends Budget Planner with an advisory context-window forecast. It
+uses the current context percentage, model window, completed-turn input deltas, compactions, and
+transient numeric composer features to estimate the next-turn percentage and safe turns remaining.
+It reports `healthy`, `watch`, `checkpoint_recommended`, `handoff_recommended`,
+`new_task_recommended`, or `unavailable`, together with provenance and confidence. Renderer-observed
+or official context enables strong warnings; estimated context remains informational only. The
+panel can explicitly prepare a checkpoint or handoff, or open a blank new task, but it never edits
+the prompt and never presses Send. Compaction impact is shown as unavailable when Codex exposes no
+before/after context measurement.
+
+```toml
+[ui.budget]
+optimizer_enabled = true
+optimizer_action_mode = "advisory"
+minimum_context_samples = 3
+context_warning_percent = 70
+context_checkpoint_percent = 80
+context_handoff_percent = 88
+context_new_task_percent = 93
+context_safety_reserve_percent = 5
+```
+
 Smart Performance Mode refreshes at 200 ms while active, 1 second while the dock is hidden or
 collapsed, and 5 seconds in the background. An IntersectionObserver pauses invisible footer work,
 while mutations remain coalesced into animation frames. Disable `[ui.performance].enabled` to

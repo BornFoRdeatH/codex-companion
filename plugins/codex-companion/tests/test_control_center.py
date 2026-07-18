@@ -49,6 +49,57 @@ class ControlCenterTests(unittest.TestCase):
         self.assertEqual(value["confidence"], "high")
         self.assertIn("long_prompt", value["reasons"])
 
+    def test_context_optimizer_forecasts_next_turn_and_recommends_checkpoint(self) -> None:
+        summary = {
+            "view": {"context": {"used_percent": 70, "window": 1000, "source": "observed_renderer"},
+                     "compactions": {"count": 0, "last_time": None}},
+            "budget_baseline": {"context_delta": {"count": 10, "median": 100, "mad": 0}},
+        }
+        value = evaluate(summary, self.config, {})["context_optimizer"]
+        self.assertEqual(value["next_turn_percent"], 80.0)
+        self.assertEqual(value["safe_turns_remaining"], 1)
+        self.assertEqual(value["status"], "checkpoint_recommended")
+        self.assertEqual(value["recommended_action"], "checkpoint")
+        self.assertEqual(value["confidence"], "high")
+
+    def test_context_optimizer_estimated_data_is_informational_only(self) -> None:
+        summary = {
+            "view": {"context": {"used_percent": 95, "window": 1000, "source": "estimated"},
+                     "compactions": {"count": 2, "last_time": 123.0}},
+            "budget_baseline": {"context_delta": {"count": 20, "median": 100, "mad": 0}},
+        }
+        value = evaluate(summary, self.config, {})["context_optimizer"]
+        self.assertEqual(value["level"], "info")
+        self.assertNotEqual(value["level"], "critical")
+        self.assertIn("repeated_compactions", value["reasons"])
+        self.assertEqual(value["compactions"]["impact"], "unavailable")
+
+    def test_context_optimizer_status_progression(self) -> None:
+        baseline = {"context_delta": {"count": 10, "median": 100, "mad": 0}}
+        statuses = []
+        for used in (50, 60, 70, 80, 90):
+            summary = {"view": {"context": {"used_percent": used, "window": 1000, "source": "official"},
+                                 "compactions": {}}, "budget_baseline": baseline}
+            statuses.append(evaluate(summary, self.config, {})["context_optimizer"]["status"])
+        self.assertEqual(statuses, ["healthy", "watch", "checkpoint_recommended", "handoff_recommended", "new_task_recommended"])
+
+    def test_context_optimizer_handles_missing_context_and_prompt_features(self) -> None:
+        summary = {"view": {"context": {"source": "unavailable"}, "compactions": {}}, "budget_baseline": {}}
+        value = evaluate(summary, self.config, {"prompt": "secret"})["context_optimizer"]
+        self.assertEqual(value["status"], "unavailable")
+        self.assertNotIn("prompt", value)
+
+    def test_context_optimizer_compaction_and_prompt_features_are_numeric_only(self) -> None:
+        summary = {
+            "view": {"context": {"used_percent": 78, "window": 1000, "source": "observed_renderer"},
+                     "compactions": {"count": 1, "last_time": 123.0}},
+            "budget_baseline": {"context_delta": {"count": 2, "median": 100, "mad": 10}},
+        }
+        value = evaluate(summary, self.config, {"char_count": 5000, "multi_task": True, "text": "secret"})["context_optimizer"]
+        self.assertIn("long_prompt", value["reasons"])
+        self.assertIn("multi_task", value["reasons"])
+        self.assertNotIn("text", value)
+
     def test_project_alias_and_aggregates_do_not_expose_cwd(self) -> None:
         self.storage.upsert_session("s", None, "gpt-test", "abcdef1234567890")
         now = time.time()

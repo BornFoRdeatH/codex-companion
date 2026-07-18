@@ -78,6 +78,7 @@ class UiHost:
             "scroll_direction": None, "guard_active": False,
         }
         self.transient_budget_features: dict[str, dict[str, Any]] = {}
+        self.budget_diagnostics: dict[str, Any] = {"last_action": None, "last_action_at": None}
         self.performance_state = "active"
         self.performance_diagnostics: dict[str, Any] = {"state": "active"}
         self.handoff_diagnostics: dict[str, Any] = {
@@ -247,6 +248,11 @@ class UiHost:
                 self._set_project_alias(connection, message)
             elif message.get("type") == "budget_features" and self.active_thread_id:
                 self.transient_budget_features[self.active_thread_id] = transient_features(message.get("features"))
+            elif message.get("type") == "budget_action":
+                action = str(message.get("action") or "")
+                if action in {"checkpoint", "handoff", "new_task"}:
+                    self.budget_diagnostics = {"last_action": action, "last_action_at": time.time()}
+                    self._write_status(state="budget_action")
             elif message.get("type") == "performance_state":
                 value = str(message.get("state") or "")
                 if value in {"active", "idle", "background"}:
@@ -514,6 +520,7 @@ class UiHost:
         value.setdefault("active_thread_switched_at", self.active_thread_switched_at)
         value.setdefault("history_focus", self.history_focus)
         value.setdefault("performance", self.performance_diagnostics)
+        value.setdefault("budget", self.budget_diagnostics)
         value.setdefault("handoff", self.handoff_diagnostics)
         temp = self.plugin_data / "ui-status.json.tmp"
         temp.write_text(json.dumps(value, indent=2), encoding="utf-8")

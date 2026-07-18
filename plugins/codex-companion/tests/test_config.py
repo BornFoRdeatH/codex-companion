@@ -48,9 +48,12 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(loaded.get("ui.focus_mode.load_batch"), 10)
             self.assertTrue(loaded.get("ui.focus_mode.scroll_guard"))
             self.assertEqual(loaded.get("ui.focus_mode.unknown_version_policy"), "probe")
-            self.assertTrue(loaded.get("ui.handoff.enabled"))
-            self.assertEqual(loaded.get("ui.handoff.generation"), "marked_current_turn")
-            self.assertEqual(loaded.get("ui.handoff.max_summary_chars"), 20000)
+        self.assertTrue(loaded.get("ui.handoff.enabled"))
+        self.assertEqual(loaded.get("ui.handoff.generation"), "marked_current_turn")
+        self.assertEqual(loaded.get("ui.handoff.max_summary_chars"), 20000)
+        self.assertTrue(loaded.get("ui.budget.optimizer_enabled"))
+        self.assertEqual(loaded.get("ui.budget.optimizer_action_mode"), "advisory")
+        self.assertEqual(loaded.get("ui.budget.context_new_task_percent"), 93)
 
     def test_unknown_key_warns_and_privacy_is_forced(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -382,12 +382,13 @@ class Storage:
             params.append(project["cwd_hash"])
         params.append(max(1, min(int(window), 500)))
         rows = self.conn.execute(
-            f"""SELECT a.total_tokens,a.primary_quota_delta FROM turn_aggregates a
+            f"""SELECT a.total_tokens,a.input_tokens,a.primary_quota_delta FROM turn_aggregates a
                   JOIN sessions s ON s.session_id=a.session_id WHERE {' AND '.join(where)}
                   ORDER BY a.ended_at DESC LIMIT ?""", tuple(params),
         ).fetchall()
         return {"model": model, "project": project,
                 "total_tokens": robust_stats(row["total_tokens"] for row in rows),
+                "context_delta": robust_stats(row["input_tokens"] for row in rows),
                 "quota_delta": robust_stats(row["primary_quota_delta"] for row in rows)}
 
     def register_handoff(self, session_id: str, turn_id: str, nonce: str, ttl_seconds: int = 3600) -> None:

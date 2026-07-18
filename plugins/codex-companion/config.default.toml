@@ -313,12 +313,20 @@ hotkey = "Ctrl+Shift+."
 enabled = true
 advisory_only = true
 transient_prompt_features = true
+optimizer_enabled = true
+optimizer_action_mode = "advisory"
 per_turn_tokens = 0
 weekly_remaining_reserve_percent = 10
 warn_at_percent = 80
 critical_at_percent = 100
 baseline_window = 50
 min_personal_turns = 10
+minimum_context_samples = 3
+context_warning_percent = 70
+context_checkpoint_percent = 80
+context_handoff_percent = 88
+context_new_task_percent = 93
+context_safety_reserve_percent = 5
 
 [ui.projects]
 enabled = true

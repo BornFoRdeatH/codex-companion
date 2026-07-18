@@ -50,7 +50,7 @@ def evaluate(summary: dict[str, Any], config: LoadedConfig, prompt_features: dic
         level = "critical" if projected_remaining < 0 else "warning"
         reasons.append("weekly_reserve")
     confidence = "high" if count >= minimum else "medium" if count >= 3 else "low"
-    return {
+    result = {
         "enabled": True,
         "advisory_only": True,
         "level": level,
@@ -66,6 +66,100 @@ def evaluate(summary: dict[str, Any], config: LoadedConfig, prompt_features: dic
         "reasons": reasons,
         "prompt_features": features,
         "source": "estimated",
+    }
+    result["context_optimizer"] = context_optimizer(summary, config, features)
+    return result
+
+
+def context_optimizer(summary: dict[str, Any], config: LoadedConfig,
+                      prompt_features: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Return a privacy-safe, advisory-only context-window forecast."""
+    enabled = bool(config.get("ui.budget.optimizer_enabled", True))
+    if not enabled:
+        return {"enabled": False, "status": "unavailable", "level": "info", "advisory_only": True}
+
+    view = summary.get("view") or {}
+    context = view.get("context") or {}
+    source = str(context.get("source") or "unavailable")
+    used_percent = _number(context.get("used_percent"))
+    window = _number(context.get("window"))
+    trusted = source in {"official", "observed_renderer"}
+    if used_percent is None or window is None or window <= 0:
+        return {
+            "enabled": True, "advisory_only": True, "status": "unavailable", "level": "info",
+            "source": source, "confidence": "low", "safe_turns_remaining": None,
+            "next_turn_percent": None, "predicted_delta_tokens": None, "reasons": ["context_unavailable"],
+            "recommended_action": "none", "compactions": view.get("compactions") or {},
+        }
+
+    baseline = summary.get("budget_baseline") or {}
+    stats = baseline.get("context_delta") or {}
+    samples = int(stats.get("count") or 0)
+    median_delta = _number(stats.get("median"))
+    mad = _number(stats.get("mad")) or 0.0
+    minimum = max(1, int(config.get("ui.budget.minimum_context_samples", 3)))
+    features = _safe_features(prompt_features)
+    multiplier = 1.0
+    reasons: list[str] = []
+    if features.get("char_count", 0) >= 4000:
+        multiplier *= 1.2
+        reasons.append("long_prompt")
+    if features.get("multi_task"):
+        multiplier *= 1.25
+        reasons.append("multi_task")
+    delta = (median_delta + mad) if median_delta is not None and median_delta > 0 else _number(
+        (summary.get("view") or {}).get("turn", {}).get("input")
+    )
+    if delta is None or delta <= 0:
+        delta = max(1.0, _number((summary.get("budget_baseline") or {}).get("total_tokens", {}).get("median")) or 0.0)
+    delta *= multiplier
+    next_percent = min(100.0, used_percent + (delta / window * 100.0)) if delta else used_percent
+    warning = float(config.get("ui.budget.context_warning_percent", 70))
+    checkpoint = float(config.get("ui.budget.context_checkpoint_percent", 80))
+    handoff = float(config.get("ui.budget.context_handoff_percent", 88))
+    new_task = float(config.get("ui.budget.context_new_task_percent", 93))
+    reserve = float(config.get("ui.budget.context_safety_reserve_percent", 5))
+    danger = max(warning, new_task - reserve)
+    delta_percent = delta / window * 100.0 if delta else None
+    safe_turns = None if not delta_percent else max(0, int(math.floor((danger - used_percent) / delta_percent)))
+    if source == "estimated":
+        reasons.append("estimated_context")
+    if samples < minimum:
+        reasons.append("limited_baseline")
+    compactions = view.get("compactions") or {}
+    compaction_count = int(compactions.get("count") or 0)
+    if compaction_count >= 1:
+        reasons.append("compaction_seen")
+    if compaction_count >= 2:
+        reasons.append("repeated_compactions")
+    projected = max(next_percent, used_percent)
+    if trusted and (used_percent >= new_task or projected >= new_task):
+        status, action = "new_task_recommended", "new_task"
+    elif trusted and (used_percent >= handoff or projected >= handoff):
+        status, action = "handoff_recommended", "handoff"
+    elif trusted and (used_percent >= checkpoint or projected >= checkpoint):
+        status, action = "checkpoint_recommended", "checkpoint"
+    elif used_percent >= warning or projected >= warning:
+        status, action = "watch", "monitor"
+    else:
+        status, action = "healthy", "none"
+    if not trusted:
+        level = "info"
+    elif status in {"new_task_recommended", "handoff_recommended"}:
+        level = "critical" if status == "new_task_recommended" else "warning"
+    elif status == "checkpoint_recommended" or status == "watch":
+        level = "warning"
+    else:
+        level = "info"
+    confidence = "high" if trusted and samples >= minimum else "medium" if trusted and samples >= 3 else "low"
+    return {
+        "enabled": True, "advisory_only": True, "status": status, "level": level,
+        "source": source, "confidence": confidence, "context_used_percent": round(used_percent, 2),
+        "context_window": round(window), "predicted_delta_tokens": round(delta),
+        "next_turn_percent": round(next_percent, 2), "safe_turns_remaining": safe_turns,
+        "baseline_samples": samples, "recommended_action": action, "reasons": reasons,
+        "compactions": {"count": compaction_count, "last_time": compactions.get("last_time"),
+                        "impact": "unavailable" if compaction_count else None},
     }
 
 
