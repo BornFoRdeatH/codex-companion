@@ -12,6 +12,7 @@ from codex_usage_monitor.storage import Storage
 from codex_usage_monitor.ui_host import match_adapter
 from codex_usage_monitor.ui_launcher import (
     _bootstrap_source, _plugin_family, _user_visible_path, discover_codex_app, reserve_loopback_port,
+    restart_existing_codex,
 )
 from codex_usage_monitor.widgets import WidgetError, load_widgets, markdown_to_html, sanitize_html, validate_manifest
 
@@ -45,6 +46,18 @@ class UiTests(unittest.TestCase):
         self.assertIn('"--check" in sys.argv', source)
         self.assertIn("launcher-error.log", source)
         self.assertNotIn(str(version), source)
+
+    @unittest.skipUnless(os.name == "nt", "Windows process restart")
+    def test_restart_existing_codex_terminates_only_root_process_tree(self) -> None:
+        executable = Path(r"C:\Program Files\WindowsApps\OpenAI.Codex_test\app\ChatGPT.exe")
+        entries = [
+            (10, 1, executable),
+            (11, 10, executable),
+        ]
+        with mock.patch("codex_usage_monitor.ui_launcher._windows_process_entries", side_effect=[entries, []]), \
+             mock.patch("codex_usage_monitor.ui_launcher.subprocess.run") as run:
+            self.assertEqual(restart_existing_codex(executable), 2)
+            self.assertEqual(run.call_args.args[0], ["taskkill.exe", "/PID", "10", "/T", "/F"])
 
     def test_adapter_requires_hash_and_version(self) -> None:
         adapters = [{"id": "one", "app_asar_sha256": ["ABC"], "package_versions": ["1.0"]}]

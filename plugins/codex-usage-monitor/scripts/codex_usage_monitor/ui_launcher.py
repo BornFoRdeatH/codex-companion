@@ -7,6 +7,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -62,7 +63,9 @@ def discover_codex_app(plugin_data: Path | None = None) -> Path | None:
     return result
 
 
-def launch_codex(executable: Path, port: int) -> subprocess.Popen[bytes]:
+def launch_codex(executable: Path, port: int, restart_existing: bool = False) -> subprocess.Popen[bytes]:
+    if restart_existing:
+        restart_existing_codex(executable)
     command = [
         str(executable),
         "--remote-debugging-address=127.0.0.1",
@@ -74,6 +77,32 @@ def launch_codex(executable: Path, port: int) -> subprocess.Popen[bytes]:
     else:
         kwargs["start_new_session"] = True
     return subprocess.Popen(command, **kwargs)
+
+
+def restart_existing_codex(executable: Path, timeout: float = 8.0) -> int:
+    """Stop the existing Windows single-instance tree before a launcher restart."""
+    if os.name != "nt":
+        return 0
+    target = str(executable).lower()
+    entries = [entry for entry in _windows_process_entries() if str(entry[2]).lower() == target]
+    if not entries:
+        return 0
+    target_pids = {entry[0] for entry in entries}
+    roots = [entry[0] for entry in entries if entry[1] not in target_pids]
+    for pid in roots or sorted(target_pids):
+        subprocess.run(
+            ["taskkill.exe", "/PID", str(pid), "/T", "/F"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not any(str(entry[2]).lower() == target for entry in _windows_process_entries()):
+            return len(entries)
+        time.sleep(0.1)
+    raise RuntimeError("The existing Codex process did not exit; close it in Task Manager and retry")
 
 
 def launcher_paths() -> list[Path]:
@@ -104,7 +133,7 @@ def install_launcher(plugin_root: Path, plugin_data: Path) -> list[Path]:
         wrapper = launcher_dir / "codex-usage-ui.cmd"
         wrapper.parent.mkdir(parents=True, exist_ok=True)
         wrapper.write_text(
-            f'@echo off\r\npy -3 "{bootstrap}" %*\r\n',
+            f'@echo off\r\npy -3 "{bootstrap}" --restart-existing %*\r\n',
             encoding="utf-8",
         )
         command_processor = Path(os.environ.get("COMSPEC", r"C:\Windows\System32\cmd.exe"))
@@ -213,9 +242,10 @@ script = root / "scripts" / "usage_monitor.py"
 if "--check" in sys.argv:
     print(script)
     raise SystemExit(0)
+forward = [value for value in sys.argv[1:] if value != "--check"]
 error_log.unlink(missing_ok=True)
 try:
-    os.execv(sys.executable, [sys.executable, str(script), "--data-dir", {str(plugin_data)!r}, "ui", "launch"])
+    os.execv(sys.executable, [sys.executable, str(script), "--data-dir", {str(plugin_data)!r}, "ui", "launch", *forward])
 except OSError as exc:
     message = f"Cannot launch Codex Usage Monitor: {{exc}}"
     error_log.write_text(message, encoding="utf-8")
@@ -236,6 +266,14 @@ def _user_visible_path(path: Path, reference_data: Path | None = None) -> Path:
 
 
 def _windows_running_paths() -> list[Path]:
+    result: list[Path] = []
+    for _, _, path in _windows_process_entries():
+        if path not in result:
+            result.append(path)
+    return result
+
+
+def _windows_process_entries() -> list[tuple[int, int, Path]]:
     if os.name != "nt":
         return []
     import ctypes
@@ -253,7 +291,7 @@ def _windows_running_paths() -> list[Path]:
     snapshot = kernel.CreateToolhelp32Snapshot(2, 0)
     entry = ProcessEntry()
     entry.dwSize = ctypes.sizeof(entry)
-    result: list[Path] = []
+    result: list[tuple[int, int, Path]] = []
     try:
         ok = kernel.Process32FirstW(snapshot, ctypes.byref(entry))
         while ok:
@@ -264,8 +302,8 @@ def _windows_running_paths() -> list[Path]:
                     length = wintypes.DWORD(len(buffer))
                     if kernel.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(length)):
                         path = Path(buffer.value)
-                        if "OpenAI.Codex_" in str(path) and path not in result:
-                            result.append(path)
+                        if "OpenAI.Codex_" in str(path):
+                            result.append((int(entry.th32ProcessID), int(entry.th32ParentProcessID), path))
                     kernel.CloseHandle(handle)
             ok = kernel.Process32NextW(snapshot, ctypes.byref(entry))
     finally:

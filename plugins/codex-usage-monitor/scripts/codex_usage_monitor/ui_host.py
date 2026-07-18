@@ -53,11 +53,12 @@ def match_adapter(fingerprint_value: dict[str, str], adapters: list[dict[str, An
 
 
 class UiHost:
-    def __init__(self, plugin_root: Path, plugin_data: Path, config: LoadedConfig, storage: Storage):
+    def __init__(self, plugin_root: Path, plugin_data: Path, config: LoadedConfig, storage: Storage, restart_existing: bool = False):
         self.plugin_root = plugin_root
         self.plugin_data = plugin_data
         self.config = config
         self.storage = storage
+        self.restart_existing = restart_existing
         self.stop = False
         signal.signal(signal.SIGINT, lambda *_: setattr(self, "stop", True))
         if hasattr(signal, "SIGTERM"):
@@ -69,7 +70,11 @@ class UiHost:
             self._write_status(state="error", error="Codex desktop executable not found")
             return 2
         port = reserve_loopback_port()
-        process = launch_codex(executable, port)
+        try:
+            process = launch_codex(executable, port, self.restart_existing)
+        except (OSError, RuntimeError) as exc:
+            self._write_status(state="error", error=str(exc))
+            return 2
         fp = fingerprint(executable)
         adapter = match_adapter(fp, load_adapters(self.plugin_root))
         policy = self.config.get("ui.unknown_version_policy", "dock_only")

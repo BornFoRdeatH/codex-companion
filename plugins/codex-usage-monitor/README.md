@@ -1,4 +1,4 @@
-# Codex Usage Monitor 0.2.5
+# Codex Usage Monitor 0.2.6
 
 Local Codex token, context, quota, operation, subagent, and account telemetry. Version 0.2 adds an
 optional runtime UI: a persistent resizable dock plus compact telemetry footers below commentary
@@ -38,6 +38,11 @@ Remove it with `ui uninstall`.
 Since 0.2.5 the installed shortcut calls a stable bootstrap under `%PLUGIN_DATA%/ui`. The bootstrap
 selects the newest intact marketplace cache entry at launch time, so removing an obsolete version
 directory no longer breaks the Desktop or Start Menu shortcut.
+
+On Windows the installed shortcut passes `--restart-existing`: it closes an existing background
+Codex process tree before starting the app with its loopback DevTools port. This is required because
+Codex is single-instance and may remain running after its last visible window is closed. Direct
+`ui launch` calls remain non-destructive unless the flag is supplied explicitly.
 
 ## Compatibility behavior
 

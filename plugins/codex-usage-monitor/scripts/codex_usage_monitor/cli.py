@@ -50,7 +50,8 @@ def parser() -> argparse.ArgumentParser:
     reset.add_argument("--yes", action="store_true")
     ui = sub.add_parser("ui")
     ui_sub = ui.add_subparsers(dest="ui_command", required=True)
-    ui_sub.add_parser("launch")
+    launch = ui_sub.add_parser("launch")
+    launch.add_argument("--restart-existing", action="store_true")
     ui_sub.add_parser("install")
     ui_sub.add_parser("uninstall")
     ui_sub.add_parser("doctor")
@@ -84,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
                 if not config.get("ui.enabled", True):
                     print("UI is disabled in config.toml.", file=sys.stderr)
                     return 2
-                return UiHost(plugin_root, plugin_data, config, storage).run()
+                return UiHost(plugin_root, plugin_data, config, storage, restart_existing=args.restart_existing).run()
             if args.ui_command == "install":
                 for path in install_launcher(plugin_root, plugin_data):
                     print(path)
