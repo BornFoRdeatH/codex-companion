@@ -339,6 +339,10 @@ include_git_summary = true
 open_new_task = true
 copy_fallback = true
 max_summary_chars = 20000
+max_checkpoint_chars = 8000
+navigation_timeout_ms = 2500
+required_sections = ["Goal", "Current state", "Completed work", "Decisions and constraints", "Changed files", "Verification", "Open issues", "Next steps"]
+checkpoint_enabled = true
 
 [ui.widgets]
 directories = ["${PLUGIN_ROOT}/ui/widgets", "${PLUGIN_DATA}/ui/widgets"]

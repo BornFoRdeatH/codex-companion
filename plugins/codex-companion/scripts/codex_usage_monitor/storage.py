@@ -213,6 +213,18 @@ CREATE TABLE IF NOT EXISTS handoff_requests (
     PRIMARY KEY(session_id,turn_id)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS handoff_nonce ON handoff_requests(nonce);
+CREATE TABLE IF NOT EXISTS handoff_lifecycle (
+    nonce TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    source_turn_id TEXT,
+    target_session_id TEXT,
+    mode TEXT NOT NULL,
+    state TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    expires_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS handoff_lifecycle_session ON handoff_lifecycle(session_id, updated_at);
 """
 
 
@@ -240,9 +252,9 @@ class Storage:
             self.conn.execute("DELETE FROM ui_message_snapshots WHERE thread_id='/index.html'")
             self.set_meta("removed_legacy_index_snapshots", "1")
         self.conn.commit()
-        self.set_meta("schema_version", "5")
+        self.set_meta("schema_version", "6")
         self.materialize_completed_turns()
-        if previous_schema != "5":
+        if previous_schema != "6":
             turn_ids = self.conn.execute("SELECT turn_id FROM turns WHERE ended_at IS NOT NULL").fetchall()
             for row in turn_ids:
                 self.materialize_turn(str(row["turn_id"]), commit=False)
@@ -389,7 +401,66 @@ class Storage:
                nonce=excluded.nonce,state='pending',created_at=excluded.created_at,expires_at=excluded.expires_at""",
             (session_id, turn_id, nonce, now, now + max(60, min(ttl_seconds, 86400))),
         )
+        now = time.time()
+        self.conn.execute(
+            """INSERT INTO handoff_lifecycle(nonce,session_id,source_turn_id,mode,state,created_at,updated_at,expires_at)
+               VALUES(?,?,?,'handoff','submitted',?,?,?)
+               ON CONFLICT(nonce) DO UPDATE SET session_id=excluded.session_id,
+               source_turn_id=excluded.source_turn_id,state='submitted',updated_at=excluded.updated_at,
+               expires_at=excluded.expires_at""",
+            (nonce, session_id, turn_id, now, now, now + max(60, min(ttl_seconds, 86400))),
+        )
         self.conn.commit()
+
+    @staticmethod
+    def _validate_handoff_nonce(nonce: str) -> None:
+        if len(nonce) != 32 or any(ch not in "0123456789abcdef" for ch in nonce):
+            raise ValueError("Invalid handoff nonce")
+
+    def create_handoff(self, session_id: str, nonce: str, mode: str = "handoff", ttl_seconds: int = 3600) -> None:
+        if not session_id or mode not in {"handoff", "checkpoint"}:
+            raise ValueError("Invalid handoff lifecycle metadata")
+        self._validate_handoff_nonce(nonce)
+        now = time.time()
+        expires = now + max(60, min(ttl_seconds, 86400))
+        self.conn.execute(
+            """INSERT INTO handoff_lifecycle(nonce,session_id,mode,state,created_at,updated_at,expires_at)
+               VALUES(?,?,?,'created',?,?,?)
+               ON CONFLICT(nonce) DO UPDATE SET session_id=excluded.session_id,mode=excluded.mode,
+               state='created',updated_at=excluded.updated_at,expires_at=excluded.expires_at""",
+            (nonce, session_id, mode, now, now, expires),
+        )
+        self.conn.commit()
+
+    def transition_handoff(self, nonce: str, state: str, *, source_turn_id: str | None = None,
+                           target_session_id: str | None = None) -> bool:
+        if state not in {"created", "submitted", "captured", "opened", "prefilling", "ready", "fallback", "expired"}:
+            raise ValueError("Invalid handoff lifecycle state")
+        self._validate_handoff_nonce(nonce)
+        now = time.time()
+        updates = ["state=?", "updated_at=?"]
+        values: list[Any] = [state, now]
+        if source_turn_id is not None:
+            updates.append("source_turn_id=?")
+            values.append(source_turn_id)
+        if target_session_id is not None:
+            updates.append("target_session_id=?")
+            values.append(target_session_id)
+        values.append(nonce)
+        cursor = self.conn.execute(f"UPDATE handoff_lifecycle SET {', '.join(updates)} WHERE nonce=?", values)
+        self.conn.commit()
+        return cursor.rowcount == 1
+
+    def handoff_lifecycle(self, nonce: str | None = None, session_id: str | None = None) -> list[dict[str, Any]]:
+        self.conn.execute("UPDATE handoff_lifecycle SET state='expired',updated_at=? WHERE expires_at<=? AND state NOT IN ('ready','fallback','expired')", (time.time(), time.time()))
+        if nonce:
+            rows = self.conn.execute("SELECT nonce,session_id,source_turn_id,target_session_id,mode,state,created_at,updated_at,expires_at FROM handoff_lifecycle WHERE nonce=?", (nonce,)).fetchall()
+        elif session_id:
+            rows = self.conn.execute("SELECT nonce,session_id,source_turn_id,target_session_id,mode,state,created_at,updated_at,expires_at FROM handoff_lifecycle WHERE session_id=? ORDER BY updated_at DESC LIMIT 20", (session_id,)).fetchall()
+        else:
+            rows = self.conn.execute("SELECT nonce,session_id,source_turn_id,target_session_id,mode,state,created_at,updated_at,expires_at FROM handoff_lifecycle ORDER BY updated_at DESC LIMIT 20").fetchall()
+        self.conn.commit()
+        return [dict(row) for row in rows]
 
     def pending_handoffs(self, session_id: str | None) -> list[dict[str, Any]]:
         if not session_id:
@@ -398,8 +469,10 @@ class Storage:
         self.conn.execute("DELETE FROM handoff_requests WHERE expires_at<=?", (now,))
         self.conn.commit()
         rows = self.conn.execute(
-            """SELECT session_id,turn_id,nonce,state,created_at,expires_at FROM handoff_requests
-               WHERE session_id=? AND state='pending' ORDER BY created_at DESC""", (session_id,),
+            """SELECT h.session_id,h.turn_id,h.nonce,h.state,h.created_at,h.expires_at,
+                      COALESCE(l.mode,'handoff') AS mode
+               FROM handoff_requests h LEFT JOIN handoff_lifecycle l ON l.nonce=h.nonce
+               WHERE h.session_id=? AND h.state='pending' ORDER BY h.created_at DESC""", (session_id,),
         ).fetchall()
         return [dict(row) for row in rows]
 
@@ -415,6 +488,10 @@ class Storage:
     def cancel_pending_handoffs(self) -> int:
         cursor = self.conn.execute(
             "UPDATE handoff_requests SET state='cancelled',expires_at=? WHERE state='pending'", (time.time() + 300,)
+        )
+        self.conn.execute(
+            "UPDATE handoff_lifecycle SET state='expired',updated_at=?,expires_at=? WHERE state NOT IN ('ready','fallback','expired')",
+            (time.time(), time.time() + 300),
         )
         self.conn.commit()
         return cursor.rowcount

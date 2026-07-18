@@ -80,6 +80,10 @@ class UiHost:
         self.transient_budget_features: dict[str, dict[str, Any]] = {}
         self.performance_state = "active"
         self.performance_diagnostics: dict[str, Any] = {"state": "active"}
+        self.handoff_diagnostics: dict[str, Any] = {
+            "exact_adapter": False, "composer": False, "new_task_anchor": False,
+            "clipboard": False, "preview_capture": False, "fallback": False,
+        }
         signal.signal(signal.SIGINT, lambda *_: setattr(self, "stop", True))
         if hasattr(signal, "SIGTERM"):
             signal.signal(signal.SIGTERM, lambda *_: setattr(self, "stop", True))
@@ -249,6 +253,20 @@ class UiHost:
                     self.performance_state = value
                     metrics = message.get("diagnostics")
                     self.performance_diagnostics = {"state": value, **(metrics if isinstance(metrics, dict) else {})}
+            elif message.get("type") == "handoff_created" and self.active_thread_id:
+                nonce = str(message.get("nonce") or "")
+                mode = str(message.get("mode") or "handoff")
+                try:
+                    self.storage.create_handoff(self.active_thread_id, nonce, mode)
+                except ValueError:
+                    pass
+            elif message.get("type") in {
+                "handoff_submitted", "handoff_captured", "handoff_open_started", "handoff_prefilling",
+                "handoff_prefill_confirmed", "handoff_prefill_failed", "handoff_fallback",
+            }:
+                self._handle_handoff_event(message)
+            elif message.get("type") == "handoff_diagnostics":
+                self._handle_handoff_event(message)
             elif message.get("type") == "git_summary_request":
                 self._respond_git_summary(connection, message)
             elif message.get("type") == "handoff_complete" and self.active_thread_id and message.get("turnId"):
@@ -496,10 +514,35 @@ class UiHost:
         value.setdefault("active_thread_switched_at", self.active_thread_switched_at)
         value.setdefault("history_focus", self.history_focus)
         value.setdefault("performance", self.performance_diagnostics)
+        value.setdefault("handoff", self.handoff_diagnostics)
         temp = self.plugin_data / "ui-status.json.tmp"
         temp.write_text(json.dumps(value, indent=2), encoding="utf-8")
         temp.replace(self.plugin_data / "ui-status.json")
 
+    def _handle_handoff_event(self, message: dict[str, Any]) -> None:
+        nonce = str(message.get("nonce") or "")
+        event = str(message.get("type") or "")
+        diagnostics = message.get("diagnostics")
+        if isinstance(diagnostics, dict):
+            allowed = {"exact_adapter", "composer", "new_task_anchor", "clipboard", "preview_capture", "fallback"}
+            self.handoff_diagnostics.update({key: bool(value) for key, value in diagnostics.items() if key in allowed})
+        if not nonce:
+            return
+        state_by_event = {
+            "handoff_submitted": "submitted", "handoff_captured": "captured", "handoff_open_started": "opened",
+            "handoff_prefilling": "prefilling", "handoff_prefill_confirmed": "ready", "handoff_prefill_failed": "fallback",
+            "handoff_fallback": "fallback",
+        }
+        state = state_by_event.get(event)
+        if state:
+            try:
+                self.storage.transition_handoff(
+                    nonce, state,
+                    source_turn_id=str(message.get("turnId")) if message.get("turnId") else None,
+                    target_session_id=self.active_thread_id if state == "ready" else None,
+                )
+            except ValueError:
+                return
     def _log_error(self, exc: Exception) -> None:
         self.plugin_data.mkdir(parents=True, exist_ok=True)
         line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {type(exc).__name__}: {exc}\n"

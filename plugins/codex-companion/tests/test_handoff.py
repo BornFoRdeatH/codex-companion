@@ -53,8 +53,34 @@ class HandoffTests(unittest.TestCase):
             self.assertEqual(len(storage.pending_handoffs("s")), 1)
             self.assertEqual(storage.cancel_pending_handoffs(), 1)
             self.assertEqual(storage.pending_handoffs("s"), [])
+            self.assertEqual(storage.handoff_lifecycle("a" * 32)[0]["state"], "expired")
             with self.assertRaises(ValueError):
                 storage.register_handoff("s", "bad", "not-a-nonce")
+            storage.close()
+
+    def test_lifecycle_stores_only_metadata_and_supports_target_transitions(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            storage = Storage(Path(directory) / "usage.sqlite3")
+            nonce = "b" * 32
+            storage.create_handoff("source", nonce, "handoff")
+            self.assertEqual(storage.handoff_lifecycle(nonce)[0]["state"], "created")
+            storage.transition_handoff(nonce, "opened", source_turn_id="turn")
+            storage.transition_handoff(nonce, "prefilling")
+            storage.transition_handoff(nonce, "ready", target_session_id="target")
+            row = storage.handoff_lifecycle(nonce)[0]
+            self.assertEqual((row["source_turn_id"], row["target_session_id"], row["state"]), ("turn", "target", "ready"))
+            columns = {item[1] for item in storage.conn.execute("PRAGMA table_info(handoff_lifecycle)")}
+            self.assertFalse({"prompt", "summary", "content", "markdown", "text", "diff"} & columns)
+            storage.close()
+
+    def test_checkpoint_mode_is_preserved_when_marker_is_registered(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            storage = Storage(Path(directory) / "usage.sqlite3")
+            nonce = "c" * 32
+            storage.create_handoff("source", nonce, "checkpoint")
+            storage.register_handoff("source", "turn", nonce)
+            row = storage.handoff_lifecycle(nonce)[0]
+            self.assertEqual((row["mode"], row["state"], row["source_turn_id"]), ("checkpoint", "submitted", "turn"))
             storage.close()
 
     def test_git_summary_uses_verified_cwd_and_returns_no_diff_content(self) -> None:

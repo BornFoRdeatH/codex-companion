@@ -1,7 +1,7 @@
 {
   "name": "codex-usage-monitor",
-  "version": "0.8.0",
-  "description": "Codex Companion adds telemetry, a control center, and privacy-safe model-generated handoffs to new tasks.",
+  "version": "1.0.0+codex.20260718223737",
+  "description": "Codex Companion adds telemetry, a control center, and privacy-safe, recoverable handoffs to new tasks.",
   "author": {
     "name": "Local"
   },

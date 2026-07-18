@@ -1,4 +1,4 @@
-# Codex Companion 0.8.0
+# Codex Companion 1.0.0
 
 Local Codex token, context, quota, operation, subagent, and account telemetry. Version 0.2 adds an
 optional runtime UI: a persistent resizable dock plus compact telemetry footers below commentary
@@ -35,16 +35,21 @@ the current composer but never sends it. After you submit it, Codex uses the cur
 produce one final handoff answer. Only that explicitly marked final answer is read into an editable
 in-memory preview; all other message content remains unavailable to Companion.
 
-The preview covers Goal, Current state, Completed work, Decisions and constraints, Changed files,
-Verification, Open issues, Next steps, and short model/context metrics. On request, the host adds
-only `git status --porcelain` paths and `git diff --stat` output from the verified project directory;
-it never reads diff contents or command history. **Open new task** uses the exact renderer adapter
-to invoke the current project's native new-task button and prefills the composer without sending.
-When navigation is unavailable, Companion copies the Markdown and leaves manual instructions.
+The preview validates Goal, Current state, Completed work, Decisions and constraints, Changed files,
+Verification, Open issues, and Next steps, warning about missing sections or truncation without
+blocking copy. On request, the host adds only `git status --porcelain` paths and `git diff --stat`
+output from the verified project directory; it never reads diff contents or command history.
+**Open new task** uses the exact renderer adapter and keeps the preview open until composer prefill
+is confirmed. When navigation is unavailable or times out, Companion copies the Markdown and leaves
+manual instructions. **Continue from handoff** reopens the current renderer's in-memory preview.
+**Checkpoint** creates a shorter handoff without opening a new task.
 
-Handoff text exists only in renderer memory or the user clipboard. SQLite schema v5 stores only
-`session_id`, `turn_id`, random nonce, state, and expiry. Reloading the renderer cancels unfinished
-requests, and completed/expired markers are automatically removed.
+Handoff text exists only in renderer memory or the user clipboard. SQLite schema v6 stores only
+technical lifecycle metadata; it has no prompt, summary, Markdown, or diff-content fields. Reloading
+the renderer expires unfinished requests, and completed/expired markers are automatically removed.
+
+Run `handoff doctor` to inspect exact adapter, composer, native navigation, clipboard, preview,
+fallback, and metadata-only storage checks. The doctor reports technical statuses only.
 
 ## Native History Focus
 

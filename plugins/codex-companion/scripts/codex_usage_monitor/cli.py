@@ -174,6 +174,20 @@ def main(argv: list[str] | None = None) -> int:
                 print(output.getvalue(), end="")
             return 0
         if args.command == "handoff":
+            status = ui_status(plugin_data)
+            lifecycle = storage.handoff_lifecycle(session_id=None)
+            handoff_status = (status.get("handoff") or {}) if isinstance(status, dict) else {}
+            columns = {row[1] for row in storage.conn.execute("PRAGMA table_info(handoff_lifecycle)")}
+            forbidden_columns = {"prompt", "summary", "content", "markdown", "text", "diff"}
+            checks = {
+                "exact_adapter": status.get("runtime_compatibility") == "exact",
+                "composer": bool(handoff_status.get("composer")),
+                "native_new_task_anchor": bool(handoff_status.get("new_task_anchor")),
+                "clipboard": bool(handoff_status.get("clipboard")),
+                "preview_capture": bool(handoff_status.get("preview_capture")),
+                "fallback": bool(handoff_status.get("fallback")),
+                "metadata_only_schema": not bool(columns & forbidden_columns),
+            }
             details = {
                 "enabled": bool(config.get("ui.handoff.enabled", True)),
                 "generation": config.get("ui.handoff.generation"),
@@ -183,9 +197,12 @@ def main(argv: list[str] | None = None) -> int:
                 ).fetchone()["count"],
                 "exact_adapter_required": True,
                 "copy_fallback": bool(config.get("ui.handoff.copy_fallback", True)),
+                "schema_version": storage.get_meta("schema_version"),
+                "checks": checks,
+                "lifecycle": lifecycle,
             }
             print(json.dumps(details, indent=2, ensure_ascii=False))
-            return 0
+            return 0 if all(checks.values()) else 1
         if args.command == "export-history":
             rows = storage.history(args.session_id, _since_timestamp(args.since),
                                    "current_chat" if args.session_id else "all_chats", 5000,

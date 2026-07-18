@@ -146,6 +146,16 @@ def _validate(data: dict[str, Any]) -> list[str]:
     if not 1000 <= handoff["max_summary_chars"] <= 100000:
         warnings.append("ui.handoff.max_summary_chars must be 1000-100000; using 20000")
         handoff["max_summary_chars"] = 20000
+    if not 1000 <= handoff["max_checkpoint_chars"] <= handoff["max_summary_chars"]:
+        warnings.append("ui.handoff.max_checkpoint_chars must be between 1000 and max_summary_chars; using 8000")
+        handoff["max_checkpoint_chars"] = min(8000, handoff["max_summary_chars"])
+    if not 500 <= handoff["navigation_timeout_ms"] <= 10000:
+        warnings.append("ui.handoff.navigation_timeout_ms must be between 500 and 10000; using 2500")
+        handoff["navigation_timeout_ms"] = 2500
+    sections = handoff.get("required_sections")
+    if not isinstance(sections, list) or not all(isinstance(value, str) and value.strip() for value in sections):
+        warnings.append("ui.handoff.required_sections must be a non-empty string list; using defaults")
+        handoff["required_sections"] = ["Goal", "Current state", "Completed work", "Decisions and constraints", "Changed files", "Verification", "Open issues", "Next steps"]
     for key in ("progress_bar_width", "max_width", "max_lines"):
         if data["display"][key] < 1:
             warnings.append(f"display.{key} must be positive; using default")
