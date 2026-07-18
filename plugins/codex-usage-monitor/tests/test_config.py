@@ -42,10 +42,11 @@ class ConfigTests(unittest.TestCase):
             self.assertTrue(loaded.get("ui.advisor.enabled"))
             self.assertFalse(loaded.get("ui.advisor.prompt_coach.enabled"))
             self.assertEqual(loaded.get("ui.advisor.baseline_window"), 50)
-            self.assertTrue(loaded.get("ui.chat_virtualization.enabled"))
-            self.assertEqual(loaded.get("ui.chat_virtualization.visible_turns"), 10)
-            self.assertEqual(loaded.get("ui.chat_virtualization.load_batch"), 10)
-            self.assertEqual(loaded.get("ui.chat_virtualization.unknown_version_policy"), "probe")
+            self.assertTrue(loaded.get("ui.focus_mode.enabled"))
+            self.assertEqual(loaded.get("ui.focus_mode.visible_turns"), 10)
+            self.assertEqual(loaded.get("ui.focus_mode.load_batch"), 10)
+            self.assertTrue(loaded.get("ui.focus_mode.scroll_guard"))
+            self.assertEqual(loaded.get("ui.focus_mode.unknown_version_policy"), "probe")
 
     def test_unknown_key_warns_and_privacy_is_forced(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -86,29 +87,50 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(loaded.get("locale.language"), "en")
             self.assertTrue(any("locale.language" in item for item in loaded.warnings))
 
-    def test_invalid_chat_virtualization_values_fall_back(self) -> None:
+    def test_invalid_focus_mode_values_fall_back(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)
             (path / "config.toml").write_text(
-                'schema_version=1\n[ui.chat_virtualization]\nvisible_turns=4\nload_batch=101\nunknown_version_policy="force"\n',
+                'schema_version=1\n[ui.focus_mode]\nvisible_turns=4\nload_batch=101\nunknown_version_policy="force"\n',
                 encoding="utf-8",
             )
             loaded = load_config(PLUGIN_ROOT, path)
-            self.assertEqual(loaded.get("ui.chat_virtualization.visible_turns"), 10)
-            self.assertEqual(loaded.get("ui.chat_virtualization.load_batch"), 10)
-            self.assertEqual(loaded.get("ui.chat_virtualization.unknown_version_policy"), "probe")
-            self.assertEqual(sum("ui.chat_virtualization" in item for item in loaded.warnings), 3)
+            self.assertEqual(loaded.get("ui.focus_mode.visible_turns"), 10)
+            self.assertEqual(loaded.get("ui.focus_mode.load_batch"), 10)
+            self.assertEqual(loaded.get("ui.focus_mode.unknown_version_policy"), "probe")
+            self.assertEqual(sum("ui.focus_mode" in item for item in loaded.warnings), 3)
 
-    def test_existing_config_receives_chat_virtualization_section(self) -> None:
+    def test_existing_config_receives_focus_mode_section(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)
             config_path = path / "config.toml"
             config_path.write_text("schema_version=1\n", encoding="utf-8")
             loaded = load_config(PLUGIN_ROOT, path)
-            self.assertTrue(loaded.get("ui.chat_virtualization.enabled"))
+            self.assertTrue(loaded.get("ui.focus_mode.enabled"))
             migrated = config_path.read_text(encoding="utf-8")
-            self.assertIn("[ui.chat_virtualization]", migrated)
-            self.assertIn("Added ui.chat_virtualization", "\n".join(loaded.warnings))
+            self.assertIn("[ui.focus_mode]", migrated)
+            self.assertIn("Added ui.focus_mode", "\n".join(loaded.warnings))
+
+    def test_chat_virtualization_alias_migrates_for_one_release(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            config_path = path / "config.toml"
+            config_path.write_text(
+                'schema_version=1\n[ui.chat_virtualization]\nenabled=false\nvisible_turns=20\nload_batch=15\nreset_on_thread_switch=false\nunknown_version_policy="disable"\n',
+                encoding="utf-8",
+            )
+            loaded = load_config(PLUGIN_ROOT, path)
+            self.assertFalse(loaded.get("ui.focus_mode.enabled"))
+            self.assertEqual(loaded.get("ui.focus_mode.visible_turns"), 20)
+            self.assertEqual(loaded.get("ui.focus_mode.load_batch"), 15)
+            self.assertFalse(loaded.get("ui.focus_mode.reset_on_thread_switch"))
+            self.assertEqual(loaded.get("ui.focus_mode.unknown_version_policy"), "disable")
+            migrated = config_path.read_text(encoding="utf-8")
+            self.assertIn("[ui.focus_mode]", migrated)
+            self.assertNotIn("[ui.chat_virtualization]", migrated)
+            self.assertTrue(any("deprecated" in warning for warning in loaded.warnings))
+            reloaded = load_config(PLUGIN_ROOT, path)
+            self.assertFalse(any("deprecated" in warning for warning in reloaded.warnings))
 
 
 if __name__ == "__main__":

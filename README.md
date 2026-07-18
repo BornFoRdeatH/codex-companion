@@ -1,6 +1,6 @@
 # BornFoRdeatH Codex Plugins
 
-Public Codex plugin marketplace containing **Codex Usage Monitor 0.5.0**, with session-isolated local telemetry, Usage Advisor, Usage Guard, privacy-safe chat virtualization, and
+Public Codex plugin marketplace containing **Codex Companion 0.6.0** (technical plugin ID `codex-usage-monitor`), with session-isolated local telemetry, Native History Focus, Usage Advisor, Usage Guard, and
 optional memory-only runtime UI for the Codex desktop app.
 
 ## Install from GitHub
@@ -12,6 +12,6 @@ codex plugin add codex-usage-monitor@bornfordeath-plugins
 
 Restart the Codex app, open a new task, and review the hook trust prompt. Then install the desktop
 launcher with `scripts\usage-monitor.cmd ui install` from the installed plugin directory. Launch
-Codex from **Codex Usage UI** to enable the persistent dock and verified message footers.
+Codex from **Codex Companion** to enable the persistent dock, Native History Focus, and verified message footers.
 
 Plugin documentation: [plugins/codex-usage-monitor/README.md](plugins/codex-usage-monitor/README.md)

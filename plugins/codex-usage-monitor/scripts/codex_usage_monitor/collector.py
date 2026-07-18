@@ -160,7 +160,7 @@ def _run_app_server(config: LoadedConfig, storage: Storage) -> int:
             "params": {
                 "clientInfo": {
                     "name": "codex_usage_monitor",
-                    "title": "Codex Usage Monitor",
+                    "title": "Codex Companion",
                     "version": "0.2.9",
                 }
             },

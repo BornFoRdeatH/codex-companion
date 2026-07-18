@@ -95,7 +95,7 @@ def main() -> int:
     except Exception as exc:  # Hooks must fail open.
         _log_fallback(plugin_data, f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}")
         if _show_errors_safely(plugin_root, plugin_data):
-            response["systemMessage"] = f"Codex Usage Monitor: collection error ({type(exc).__name__}); see diagnostics log."
+            response["systemMessage"] = f"Codex Companion: collection error ({type(exc).__name__}); see diagnostics log."
     finally:
         if storage:
             storage.close()

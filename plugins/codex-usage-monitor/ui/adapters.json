@@ -24,6 +24,14 @@
       "turn_wrapper_contract": {
         "identity": ["conversationId", "turnId"],
         "completion": "mcpTurn.status"
+      },
+      "native_focus_contract": {
+        "turn_attribute": "data-turn-key",
+        "turn_number": "turnNumber",
+        "total_turn_count": "totalTurnCount",
+        "latest": "isMostRecentTurn",
+        "entry": "entry",
+        "wrapper_parent_levels": 1
       }
     }
   ]

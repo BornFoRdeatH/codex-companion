@@ -1,4 +1,4 @@
-# Codex Usage Monitor 0.5.0
+# Codex Companion 0.6.0
 
 Local Codex token, context, quota, operation, subagent, and account telemetry. Version 0.2 adds an
 optional runtime UI: a persistent resizable dock plus compact telemetry footers below commentary
@@ -8,30 +8,37 @@ The UI is injected in memory over a random loopback Chromium DevTools port. It d
 Codex files, `app.asar`, package signatures, or model context. Hooks collect telemetry but are not
 used as the display surface while `[ui]` is enabled.
 
-## Chat history virtualization
+The technical plugin ID remains `codex-usage-monitor`; existing configuration, SQLite history,
+hook trust, marketplace identity, and CLI commands remain compatible after the display-name change.
 
-Long chats use privacy-safe soft virtualization by default. The runtime keeps the latest 10 complete
-turns in layout and paint, while older complete turn wrappers remain mounted in React but use
-`display: none` and containment markers. A native-style **Show previous 10** button reveals history
-in batches without changing the current scroll position. Streaming turns are never hidden.
+## Native History Focus
 
-Turn wrappers are identified only from structural `conversationId`, `turnId`, and completion state;
-prompt, assistant, and tool contents are not read. The window resets after reload or task switch.
-Unknown renderer builds must first present at least three unique turns under the same structural
-parent; if this contract is not confirmed, every wrapper is restored and virtualization stays off.
+Codex already virtualizes long chats internally: a task can contain dozens of logical turns while
+only a small contiguous range is mounted. Native History Focus uses that privacy-safe contract
+(`data-turn-key`, `turnNumber`, `totalTurnCount`, and `isMostRecentTurn`) instead of duplicating it.
+Navigation initially stays within the latest 10 logical turns. At the boundary, a native-style
+**Show previous 10** button opens another batch without moving the current content.
+
+The runtime suppresses native overscan rows outside the allowed range and clamps upward scrolling at
+the boundary. Streaming/latest turns always remain accessible. It never reads prompt, assistant, or
+tool contents. If at least three mounted turns do not form one contiguous, stable native range, the
+feature fails open and restores standard Codex navigation immediately.
 
 ```toml
-[ui.chat_virtualization]
+[ui.focus_mode]
 enabled = true
 visible_turns = 10
 load_batch = 10
 reset_on_thread_switch = true
+scroll_guard = true
 unknown_version_policy = "probe"
 ```
 
 `visible_turns` and `load_batch` accept values from 5 through 100. Setting `enabled = false`
-immediately restores Codex's standard layout. Diagnostics contain only thread ID, compatibility,
-and visible/hidden turn counts in `ui-status.json`.
+immediately restores Codex's standard navigation. Diagnostics contain only thread ID,
+compatibility, total/mounted counts, logical window boundary, and hidden logical-turn count in
+`ui-status.json`. Existing `[ui.chat_virtualization]` values migrate automatically in v0.6.0 and
+remain accepted as deprecated aliases for this release.
 
 ## Session isolation
 
@@ -53,7 +60,7 @@ Restart Codex, create a new task, and approve the hook trust prompt after review
 ## Install the desktop UI launcher
 
 Run the command from the installed plugin directory. On Windows it creates Desktop and Start Menu
-shortcuts; on macOS it creates `~/Applications/Codex Usage UI.app`; on Linux it creates a desktop
+shortcuts; on macOS it creates `~/Applications/Codex Companion.app`; on Linux it creates a desktop
 entry.
 
 ```powershell
@@ -61,10 +68,11 @@ scripts\usage-monitor.cmd ui install
 scripts\usage-monitor.cmd ui doctor
 ```
 
-Fully close a normally launched Codex instance, then start **Codex Usage UI**. Codex must be started
+Fully close a normally launched Codex instance, then start **Codex Companion**. Codex must be started
 by this launcher because v0.2 deliberately does not attach to arbitrary existing processes.
 
-After updating the plugin, run `ui install` again to refresh the stable launcher bootstrap.
+After updating the plugin, run `ui install` again to refresh the stable launcher bootstrap. The
+installer removes legacy **Codex Usage UI** launchers during the 0.6.0 rebrand.
 Remove it with `ui uninstall`.
 
 Since 0.2.5 the installed shortcut calls a stable bootstrap under `%PLUGIN_DATA%/ui`. The bootstrap

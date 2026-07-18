@@ -1,7 +1,7 @@
 {
   "name": "codex-usage-monitor",
-  "version": "0.5.0",
-  "description": "Session-isolated Codex telemetry with safe long-chat virtualization, Usage Advisor, Guard, History, dock, and message footers.",
+  "version": "0.6.0",
+  "description": "Codex Companion adds session-isolated telemetry, native history focus, Usage Advisor, Guard, History, dock, and message footers.",
   "author": {
     "name": "Local"
   },
@@ -14,9 +14,9 @@
     "rate-limits"
   ],
   "interface": {
-    "displayName": "Codex Usage Monitor",
-    "shortDescription": "Local token, quota, and context telemetry",
-    "longDescription": "Shows session-isolated Codex usage telemetry, safely virtualizes long chat history, and adds local token-saving advice, privacy-safe history, alerts, and verified message footers without adding monitor text to model context.",
+    "displayName": "Codex Companion",
+    "shortDescription": "Telemetry, focus, history, and optimization",
+    "longDescription": "Extends Codex with session-isolated telemetry, native history focus, local token-saving advice, privacy-safe history, alerts, and verified message footers without adding companion text to model context.",
     "developerName": "Local",
     "category": "Productivity",
     "capabilities": [
@@ -25,9 +25,9 @@
       "UI Extension"
     ],
     "defaultPrompt": [
-      "Show my Codex usage monitor status.",
-      "Validate my usage monitor configuration.",
-      "Explain unavailable usage monitor fields."
+      "Show my Codex Companion status.",
+      "Validate my Codex Companion configuration.",
+      "Explain unavailable Codex Companion fields."
     ],
     "brandColor": "#10A37F"
   }

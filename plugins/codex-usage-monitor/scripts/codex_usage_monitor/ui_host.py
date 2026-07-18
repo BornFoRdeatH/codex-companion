@@ -68,8 +68,9 @@ class UiHost:
         self.active_thread_id: str | None = None
         self.active_session_state = "pending"
         self.active_thread_switched_at: float | None = None
-        self.history_virtualization: dict[str, Any] = {
-            "thread_id": None, "compatible": None, "total_turns": 0, "visible_turns": 0, "hidden_turns": 0,
+        self.history_focus: dict[str, Any] = {
+            "thread_id": None, "compatible": None, "total_turns": 0, "mounted_turns": 0,
+            "window_start": None, "visible_window_turns": 0, "hidden_logical_turns": 0,
         }
         signal.signal(signal.SIGINT, lambda *_: setattr(self, "stop", True))
         if hasattr(signal, "SIGTERM"):
@@ -96,8 +97,8 @@ class UiHost:
             self._write_status(state="unsupported", pid=process.pid, port=port, fingerprint=fp)
             return 3
         self._write_status(state="starting", pid=process.pid, port=port, fingerprint=fp, adapter=adapter)
-        virtualization = (self.plugin_root / "ui" / "history_virtualization.js").read_text(encoding="utf-8")
-        runtime = virtualization + "\n" + (self.plugin_root / "ui" / "runtime.js").read_text(encoding="utf-8")
+        history_focus = (self.plugin_root / "ui" / "history_focus.js").read_text(encoding="utf-8")
+        runtime = history_focus + "\n" + (self.plugin_root / "ui" / "runtime.js").read_text(encoding="utf-8")
         last_target = None
         connection: CdpConnection | None = None
         while not self.stop and process.poll() is None:
@@ -190,7 +191,7 @@ class UiHost:
             "guard": self.config.get("ui.guard", {}),
             "historyConfig": self.config.get("ui.history", {}),
             "advisorConfig": self.config.get("ui.advisor", {}),
-            "chatVirtualization": self.config.get("ui.chat_virtualization", {}),
+            "focusMode": self.config.get("ui.focus_mode", {}),
         }
 
     def _push_snapshot(self, connection: CdpConnection) -> None:
@@ -251,20 +252,26 @@ class UiHost:
                 self.runtime_compatibility = str(message.get("evidence") or "structural")
             elif message.get("type") == "compatibility" and message.get("compatible") is False:
                 self.runtime_compatibility = str(message.get("evidence") or "incompatible")
-            elif message.get("type") == "history_virtualization":
+            elif message.get("type") == "history_focus":
                 raw_thread = message.get("thread_id")
                 thread_id = str(raw_thread)[:128] if raw_thread else None
-                keys = ("total_turns", "visible_turns", "hidden_turns")
+                keys = ("total_turns", "mounted_turns", "visible_window_turns", "hidden_logical_turns")
                 values = [message.get(key) for key in keys]
                 valid_counts = all(
                     isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value <= 1_000_000
                     for value in values
                 )
-                if thread_id == self.active_thread_id and isinstance(message.get("compatible"), bool) and valid_counts:
-                    self.history_virtualization = {
+                window_start = message.get("window_start")
+                valid_window = window_start is None or (
+                    isinstance(window_start, (int, float)) and not isinstance(window_start, bool)
+                    and 1 <= window_start <= 1_000_000
+                )
+                if thread_id == self.active_thread_id and isinstance(message.get("compatible"), bool) and valid_counts and valid_window:
+                    self.history_focus = {
                         "thread_id": thread_id,
                         "compatible": message["compatible"],
                         **{key: int(value) for key, value in zip(keys, values)},
+                        "window_start": int(window_start) if window_start is not None else None,
                     }
 
     def _respond_history(self, connection: CdpConnection, message: dict[str, Any]) -> None:
@@ -321,7 +328,7 @@ class UiHost:
         value.setdefault("active_thread_id", self.active_thread_id)
         value.setdefault("active_session_state", self.active_session_state)
         value.setdefault("active_thread_switched_at", self.active_thread_switched_at)
-        value.setdefault("history_virtualization", self.history_virtualization)
+        value.setdefault("history_focus", self.history_focus)
         temp = self.plugin_data / "ui-status.json.tmp"
         temp.write_text(json.dumps(value, indent=2), encoding="utf-8")
         temp.replace(self.plugin_data / "ui-status.json")

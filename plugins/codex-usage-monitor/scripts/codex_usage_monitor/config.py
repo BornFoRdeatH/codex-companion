@@ -93,14 +93,14 @@ def _validate(data: dict[str, Any]) -> list[str]:
     if data["ui"]["history"]["max_turns"] < 1:
         warnings.append("ui.history.max_turns must be positive; using 500")
         data["ui"]["history"]["max_turns"] = 500
-    virtualization = data["ui"]["chat_virtualization"]
+    focus_mode = data["ui"]["focus_mode"]
     for key in ("visible_turns", "load_batch"):
-        if not 5 <= virtualization[key] <= 100:
-            warnings.append(f"ui.chat_virtualization.{key} must be between 5 and 100; using 10")
-            virtualization[key] = 10
-    if virtualization["unknown_version_policy"] not in {"probe", "disable"}:
-        warnings.append("Invalid ui.chat_virtualization.unknown_version_policy; using probe")
-        virtualization["unknown_version_policy"] = "probe"
+        if not 5 <= focus_mode[key] <= 100:
+            warnings.append(f"ui.focus_mode.{key} must be between 5 and 100; using 10")
+            focus_mode[key] = 10
+    if focus_mode["unknown_version_policy"] not in {"probe", "disable"}:
+        warnings.append("Invalid ui.focus_mode.unknown_version_policy; using probe")
+        focus_mode["unknown_version_policy"] = "probe"
     advisor = data["ui"]["advisor"]
     if advisor["cooldown_minutes"] < 0:
         warnings.append("ui.advisor.cooldown_minutes must be non-negative; using 30")
@@ -150,21 +150,48 @@ def load_config(plugin_root: Path, plugin_data: Path, create: bool = True) -> Lo
                 override = tomllib.load(handle)
         except (OSError, tomllib.TOMLDecodeError) as exc:
             raise ConfigError(f"Cannot read {config_path}: {exc}") from exc
-    data, warnings = _merge(defaults, override)
     override_ui = override.get("ui") if isinstance(override.get("ui"), dict) else {}
-    if create and "chat_virtualization" not in override_ui:
-        with config_path.open("a", encoding="utf-8", newline="\n") as handle:
-            handle.write(
-                "\n[ui.chat_virtualization]\n"
-                "enabled = true\n"
-                "visible_turns = 10\n"
-                "load_batch = 10\n"
-                "reset_on_thread_switch = true\n"
-                'unknown_version_policy = "probe"\n'
-            )
-        warnings.append("Added ui.chat_virtualization defaults to config.toml")
+    original_has_focus = "focus_mode" in override_ui
+    legacy = override_ui.pop("chat_virtualization", None)
+    used_legacy = not original_has_focus and isinstance(legacy, dict)
+    if used_legacy:
+        override_ui["focus_mode"] = {
+            key: value for key, value in legacy.items()
+            if key in {"enabled", "visible_turns", "load_batch", "reset_on_thread_switch", "unknown_version_policy"}
+        }
+        override_ui["focus_mode"]["scroll_guard"] = True
+    data, warnings = _merge(defaults, override)
+    if isinstance(legacy, dict):
+        warnings.append("ui.chat_virtualization is deprecated; migrated to ui.focus_mode")
     _migrate_legacy_rate_labels(data)
     warnings.extend(_validate(data))
+    if create and (not original_has_focus or isinstance(legacy, dict)):
+        focus = data["ui"]["focus_mode"]
+        text = config_path.read_text(encoding="utf-8")
+        if isinstance(legacy, dict):
+            lines: list[str] = []
+            skipping = False
+            for line in text.splitlines(keepends=True):
+                stripped = line.strip()
+                if stripped.startswith("[") and stripped.endswith("]"):
+                    skipping = stripped == "[ui.chat_virtualization]"
+                    if skipping:
+                        continue
+                if not skipping:
+                    lines.append(line)
+            text = "".join(lines)
+        if not original_has_focus:
+            text = text.rstrip() + (
+                "\n\n[ui.focus_mode]\n"
+                f"enabled = {str(bool(focus['enabled'])).lower()}\n"
+                f"visible_turns = {focus['visible_turns']}\n"
+                f"load_batch = {focus['load_batch']}\n"
+                f"reset_on_thread_switch = {str(bool(focus['reset_on_thread_switch'])).lower()}\n"
+                f"scroll_guard = {str(bool(focus['scroll_guard'])).lower()}\n"
+                f"unknown_version_policy = {focus['unknown_version_policy']!r}\n".replace("'", '"')
+            )
+            warnings.append("Added ui.focus_mode defaults to config.toml")
+        config_path.write_text(text, encoding="utf-8", newline="\n")
     def expand(value: str) -> str:
         return os.path.expandvars(
             value.replace("${PLUGIN_DATA}", str(plugin_data)).replace("${PLUGIN_ROOT}", str(plugin_root))

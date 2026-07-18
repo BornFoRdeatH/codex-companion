@@ -14,7 +14,7 @@ from codex_usage_monitor.storage import Storage
 from codex_usage_monitor.ui_host import match_adapter
 from codex_usage_monitor.ui_launcher import (
     _bootstrap_source, _plugin_family, _user_visible_path, discover_codex_app, reserve_loopback_port,
-    restart_existing_codex,
+    legacy_launcher_paths, launcher_paths, restart_existing_codex,
 )
 from codex_usage_monitor.widgets import WidgetError, load_widgets, markdown_to_html, sanitize_html, validate_manifest
 
@@ -48,6 +48,12 @@ class UiTests(unittest.TestCase):
         self.assertIn('"--check" in sys.argv', source)
         self.assertIn("launcher-error.log", source)
         self.assertNotIn(str(version), source)
+
+    def test_companion_launcher_rebrands_without_losing_legacy_cleanup_paths(self) -> None:
+        with mock.patch("codex_usage_monitor.ui_launcher.platform.system", return_value="Windows"), \
+             mock.patch.dict(os.environ, {"USERPROFILE": r"C:\Users\Person", "APPDATA": r"C:\Users\Person\AppData\Roaming"}):
+            self.assertTrue(all("Codex Companion" in path.name for path in launcher_paths()))
+            self.assertTrue(all("Codex Usage UI" in path.name for path in legacy_launcher_paths()))
 
     def test_bootstrap_launches_from_paths_with_spaces(self) -> None:
         with tempfile.TemporaryDirectory(prefix="usage monitor ") as directory:
@@ -102,6 +108,8 @@ class UiTests(unittest.TestCase):
             adapters,
         )
         self.assertEqual(current["turn_wrapper_contract"]["identity"], ["conversationId", "turnId"])
+        self.assertEqual(current["native_focus_contract"]["turn_number"], "turnNumber")
+        self.assertEqual(current["native_focus_contract"]["wrapper_parent_levels"], 1)
 
     def test_widget_traversal_and_scripted_footer_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -198,12 +206,20 @@ class UiTests(unittest.TestCase):
         self.assertIn("data-codex-usage-guard-badge", source)
         self.assertIn("data-codex-usage-advisor-badge", source)
         self.assertIn("advisorConfig", source)
-        self.assertIn("data-codex-usage-turn-hidden", source)
-        self.assertIn("data-codex-usage-history-gate", source)
-        self.assertIn("turn_wrapper_contract", source)
+        self.assertIn("data-codex-companion-focus-hidden", source)
+        self.assertIn("data-codex-companion-history-gate", source)
+        self.assertIn("native_focus_contract", source)
+        self.assertIn("[data-turn-key]", source)
+        self.assertIn("totalTurnCount", source)
+        self.assertIn("turnNumber", source)
+        self.assertIn("isMostRecentTurn", source)
+        self.assertIn('typeof props.entry==="object"', source)
+        self.assertIn("const incrementalRoots", source)
+        self.assertIn("onFocusScroll", source)
         self.assertIn("record.addedNodes", source)
+        self.assertIn('node.matches?.("[data-turn-key]")', source)
         self.assertIn("turnOriginalStyles:new WeakMap()", source)
-        self.assertIn('type:"history_virtualization"', source)
+        self.assertIn('type:"history_focus"', source)
         self.assertIn("mcpTurn", source)
         self.assertIn("row?.phase===\"final_answer\"", source)
         self.assertIn("Порада з оптимізації", source)

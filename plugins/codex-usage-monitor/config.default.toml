@@ -282,11 +282,12 @@ default_scope = "current_chat"
 default_range = "7d"
 max_turns = 500
 
-[ui.chat_virtualization]
+[ui.focus_mode]
 enabled = true
 visible_turns = 10
 load_batch = 10
 reset_on_thread_switch = true
+scroll_guard = true
 unknown_version_policy = "probe"
 
 [ui.advisor]
