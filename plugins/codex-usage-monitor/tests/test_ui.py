@@ -53,7 +53,7 @@ class UiTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="usage monitor ") as directory:
             root = Path(directory)
             family = root / "cache"
-            script = family / "0.2.7" / "scripts" / "usage_monitor.py"
+            script = family / "0.2.8" / "scripts" / "usage_monitor.py"
             script.parent.mkdir(parents=True)
             script.write_text("import sys; print('|'.join(sys.argv[1:]))", encoding="utf-8")
             bootstrap = root / "launcher.py"
@@ -81,6 +81,18 @@ class UiTests(unittest.TestCase):
         adapters = [{"id": "one", "app_asar_sha256": ["ABC"], "package_versions": ["1.0"]}]
         self.assertEqual(match_adapter({"app_asar_sha256": "abc", "package_version": "1.0"}, adapters)["id"], "one")
         self.assertIsNone(match_adapter({"app_asar_sha256": "abc", "package_version": "2.0"}, adapters))
+
+    def test_current_windows_renderer_adapter_is_registered(self) -> None:
+        path = Path(__file__).resolve().parents[1] / "ui" / "adapters.json"
+        adapters = json.loads(path.read_text(encoding="utf-8"))["adapters"]
+        matched = match_adapter(
+            {
+                "app_asar_sha256": "545941B6174CCED0EED94438BB39EA5814F568B5BC6B14C7921FED8D5B694153",
+                "package_version": "26.715.3651.0",
+            },
+            adapters,
+        )
+        self.assertEqual(matched["fiber_item_types"], ["agentMessage"])
 
     def test_widget_traversal_and_scripted_footer_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -146,6 +158,8 @@ class UiTests(unittest.TestCase):
         self.assertIn("window_minutes", source)
         self.assertIn("лишилось", source)
         self.assertIn("quota_primary_delta", source)
+        self.assertIn("const appShell=", source)
+        self.assertIn("completionFromProps", source)
         self.assertNotIn("5h used", source)
         self.assertNotIn("backdrop-filter", source)
 

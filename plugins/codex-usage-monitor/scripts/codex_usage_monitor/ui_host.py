@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import signal
+import sqlite3
 import time
 from pathlib import Path
 from typing import Any
@@ -60,6 +61,7 @@ class UiHost:
         self.storage = storage
         self.restart_existing = restart_existing
         self.stop = False
+        self._last_heartbeat = 0.0
         signal.signal(signal.SIGINT, lambda *_: setattr(self, "stop", True))
         if hasattr(signal, "SIGTERM"):
             signal.signal(signal.SIGTERM, lambda *_: setattr(self, "stop", True))
@@ -102,13 +104,25 @@ class UiHost:
                     self._write_status(state="attached", pid=process.pid, port=port, fingerprint=fp, adapter=adapter)
                 self._drain_events(connection)
                 self._push_snapshot(connection)
+                if time.monotonic() - self._last_heartbeat >= 5.0:
+                    self._write_status(state="attached", pid=process.pid, port=port, fingerprint=fp, adapter=adapter)
+                    self._last_heartbeat = time.monotonic()
                 time.sleep(max(0.1, int(self.config.get("ui.refresh_interval_ms", 200)) / 1000))
-            except (OSError, CdpError, KeyError, json.JSONDecodeError) as exc:
+            except (OSError, CdpError, KeyError, json.JSONDecodeError, sqlite3.Error) as exc:
+                self._log_error(exc)
                 self._write_status(state="reconnecting", pid=process.pid, port=port, error=str(exc), fingerprint=fp)
                 if connection:
                     connection.close()
                 connection = None
                 time.sleep(0.25)
+            except Exception as exc:
+                # The UI is optional, but it must remain self-healing when renderer or schema details drift.
+                self._log_error(exc)
+                self._write_status(state="reconnecting", pid=process.pid, port=port, error=str(exc), fingerprint=fp)
+                if connection:
+                    connection.close()
+                connection = None
+                time.sleep(0.5)
         if connection:
             connection.close()
         self._write_status(state="stopped", exit_code=process.poll(), fingerprint=fp)
@@ -189,6 +203,16 @@ class UiHost:
         temp = self.plugin_data / "ui-status.json.tmp"
         temp.write_text(json.dumps(value, indent=2), encoding="utf-8")
         temp.replace(self.plugin_data / "ui-status.json")
+
+    def _log_error(self, exc: Exception) -> None:
+        self.plugin_data.mkdir(parents=True, exist_ok=True)
+        line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {type(exc).__name__}: {exc}\n"
+        path = self.plugin_data / "ui-host-error.log"
+        try:
+            previous = path.read_text(encoding="utf-8")[-16000:] if path.is_file() else ""
+            path.write_text(previous + line, encoding="utf-8")
+        except OSError:
+            pass
 
 
 def _primary_target(targets: list[dict[str, Any]]) -> dict[str, Any] | None:

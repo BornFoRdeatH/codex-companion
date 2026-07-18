@@ -7,6 +7,13 @@
       "app_asar_sha256": ["DB455762A55503686015B34BF9BB8309E20A2FFD158BE297ADDF9CF528E21B59"],
       "fiber_item_types": ["assistant-message"],
       "phases": ["commentary", "final_answer"]
+    },
+    {
+      "id": "windows-26.715.3651.0",
+      "package_versions": ["26.715.3651.0"],
+      "app_asar_sha256": ["545941B6174CCED0EED94438BB39EA5814F568B5BC6B14C7921FED8D5B694153"],
+      "fiber_item_types": ["agentMessage"],
+      "phases": ["commentary", "final_answer"]
     }
   ]
 }

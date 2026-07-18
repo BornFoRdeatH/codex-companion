@@ -1,4 +1,4 @@
-# Codex Usage Monitor 0.2.7
+# Codex Usage Monitor 0.2.8
 
 Local Codex token, context, quota, operation, subagent, and account telemetry. Version 0.2 adds an
 optional runtime UI: a persistent resizable dock plus compact telemetry footers below commentary
@@ -51,13 +51,14 @@ This preserves Windows interpreter paths containing spaces, including
 ## Compatibility behavior
 
 Footer mounting is enabled only when both the installed package version and `app.asar` SHA-256
-match an entry in `ui/adapters.json`. The included adapter supports Windows Codex
-`26.707.12708.0`. An unknown or updated build gets a compatibility notice and a persistent dock,
+match an entry in `ui/adapters.json`. The included adapters support Windows Codex
+`26.707.12708.0` and `26.715.3651.0`. An unknown or updated build gets a compatibility notice and a persistent dock,
 but no heuristic message selectors or footers. Run `ui adapters` to inspect the live fingerprint.
 
 The dock can be resized, collapsed, and moved among right, bottom, left, and floating placements.
-By default `layout_mode = "reserve_space"` shrinks the Codex `#root` viewport so docked panels do
-not cover navigation, the composer, or message content. Set `layout_mode = "overlay"` for the old
+By default `layout_mode = "reserve_space"` shrinks both the Codex `#root` viewport and its
+viewport-sized application shell so docked panels do not cover the native right sidebar,
+navigation, composer, or message content. Set `layout_mode = "overlay"` for the old
 overlay behavior; `floating` is always an overlay.
 Its layout is stored in renderer-local state. Completed-message snapshots are stored in the
 plugin SQLite database by `thread_id + item_id`; message text is never read or stored.
@@ -68,6 +69,10 @@ estimated quota delta for the current request (`≈`), and observed execution ti
 labels come from `window_minutes`; a seven-day snapshot is never labeled as a five-hour window.
 The dock exposes the token breakdown, context window, cache hit, reset countdown, tools,
 compactions, subagents, account fields when available, and data provenance.
+
+The UI host sends live snapshots at `ui.refresh_interval_ms`, writes a five-second heartbeat to
+`ui-status.json`, and reconnects after transient CDP or SQLite errors. Diagnostics are retained in
+`ui-host-error.log`; prompt, response, and tool contents are never written there.
 
 ## Widgets
 
