@@ -6,7 +6,7 @@ optional memory-only runtime UI for the Codex desktop app.
 ## Install from GitHub
 
 ```powershell
-codex plugin marketplace add https://github.com/BornFoRdeatH/codex-usage-monitor.git
+codex plugin marketplace add https://github.com/BornFoRdeatH/codex-companion.git
 codex plugin add codex-usage-monitor@bornfordeath-plugins
 ```
 
@@ -14,4 +14,4 @@ Restart the Codex app, open a new task, and review the hook trust prompt. Then i
 launcher with `scripts\usage-monitor.cmd ui install` from the installed plugin directory. Launch
 Codex from **Codex Companion** to enable the persistent dock, Native History Focus, and verified message footers.
 
-Plugin documentation: [plugins/codex-usage-monitor/README.md](plugins/codex-usage-monitor/README.md)
+Plugin documentation: [plugins/codex-companion/README.md](plugins/codex-companion/README.md)

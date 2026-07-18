@@ -56,7 +56,7 @@ latest turn. `ui-status.json` records the active thread, its state, and the last
 ## Install from GitHub
 
 ```powershell
-codex plugin marketplace add https://github.com/BornFoRdeatH/codex-usage-monitor.git
+codex plugin marketplace add https://github.com/BornFoRdeatH/codex-companion.git
 codex plugin add codex-usage-monitor@bornfordeath-plugins
 ```
 
