@@ -59,6 +59,32 @@ class StorageTranscriptRenderTests(unittest.TestCase):
         self.storage.start_turn("t", "s")
         self.assertEqual(self.storage.summary(None, None)["turn"]["turn_id"], "t")
 
+    def test_historical_turn_uses_its_own_token_snapshot(self) -> None:
+        self.storage.upsert_session("s", None, "gpt-test", None)
+        self.storage.start_turn("old", "s")
+        self.storage.add_tokens(
+            "s", "old",
+            {"total": {"input_tokens": 80, "output_tokens": 20, "total_tokens": 100},
+             "last": {"input_tokens": 80, "output_tokens": 20, "total_tokens": 100},
+             "model_context_window": 1000},
+            time.time(), "test",
+        )
+        self.storage.end_turn("old")
+        self.storage.start_turn("new", "s")
+        self.storage.add_tokens(
+            "s", "new",
+            {"total": {"input_tokens": 240, "output_tokens": 60, "total_tokens": 300},
+             "last": {"input_tokens": 160, "output_tokens": 40, "total_tokens": 200},
+             "model_context_window": 1000},
+            time.time(), "test",
+        )
+        old = self.storage.summary(None, "old")
+        new = self.storage.summary(None, "new")
+        self.assertEqual(old["token"]["total_tokens"], 100)
+        self.assertEqual(derive(old, self.config)["turn"]["total"], 100)
+        self.assertEqual(new["token"]["total_tokens"], 300)
+        self.assertEqual(derive(new, self.config)["turn"]["total"], 200)
+
     def test_templates_unicode_and_ascii_progress(self) -> None:
         self.assertEqual(progress(50, 4, True), "██░░")
         self.assertEqual(progress(50, 4, False), "##--")

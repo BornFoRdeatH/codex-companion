@@ -14,6 +14,13 @@
       "app_asar_sha256": ["545941B6174CCED0EED94438BB39EA5814F568B5BC6B14C7921FED8D5B694153"],
       "fiber_item_types": ["agentMessage"],
       "phases": ["commentary", "final_answer"]
+    },
+    {
+      "id": "windows-26.715.4045.0",
+      "package_versions": ["26.715.4045.0"],
+      "app_asar_sha256": ["4F81FE8CFADD0ECD1D55A46F4B101B1DB70ABBB372B63A0120218B1D868008A3"],
+      "fiber_item_types": ["agentMessage"],
+      "phases": ["commentary", "final_answer"]
     }
   ]
 }

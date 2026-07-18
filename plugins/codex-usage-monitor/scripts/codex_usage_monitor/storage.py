@@ -243,7 +243,12 @@ class Storage:
             source,
         )
         previous = self.latest_tokens(session_id)
-        if previous and previous["total_tokens"] == row[7] and previous["last_total_tokens"] == row[12]:
+        if (
+            previous
+            and previous["turn_id"] == turn_id
+            and previous["total_tokens"] == row[7]
+            and previous["last_total_tokens"] == row[12]
+        ):
             return
         self.conn.execute(
             """INSERT INTO token_snapshots(session_id,turn_id,observed_at,input_tokens,cached_input_tokens,
@@ -300,6 +305,16 @@ class Storage:
             """SELECT r.* FROM rate_limit_snapshots r JOIN (
                  SELECT limit_id,window_kind,MAX(id) AS id FROM rate_limit_snapshots GROUP BY limit_id,window_kind
                ) latest ON latest.id=r.id"""
+        ).fetchall()
+        return {(row["limit_id"], row["window_kind"]): row for row in rows}
+
+    def rates_at(self, observed_at: float) -> dict[tuple[str, str], sqlite3.Row]:
+        rows = self.conn.execute(
+            """SELECT r.* FROM rate_limit_snapshots r JOIN (
+                 SELECT limit_id,window_kind,MAX(id) AS id FROM rate_limit_snapshots
+                 WHERE observed_at<=? GROUP BY limit_id,window_kind
+               ) latest ON latest.id=r.id""",
+            (observed_at,),
         ).fetchall()
         return {(row["limit_id"], row["window_kind"]): row for row in rows}
 
@@ -439,7 +454,6 @@ class Storage:
         return cursor.rowcount
 
     def summary(self, session_id: str | None, turn_id: str | None) -> dict[str, Any]:
-        token = self.latest_tokens(session_id)
         turn = self.conn.execute("SELECT * FROM turns WHERE turn_id=?", (turn_id,)).fetchone() if turn_id else None
         if not turn and session_id:
             turn = self.active_turn(session_id)
@@ -447,7 +461,26 @@ class Storage:
             turn = self.conn.execute(
                 "SELECT * FROM turns ORDER BY (ended_at IS NULL) DESC,started_at DESC LIMIT 1"
             ).fetchone()
+        if turn and not session_id:
+            session_id = str(turn["session_id"])
+        token = None
         rates = self.latest_rates()
+        if turn_id and turn:
+            token = self.conn.execute(
+                "SELECT * FROM token_snapshots WHERE turn_id=? ORDER BY observed_at DESC,id DESC LIMIT 1",
+                (turn_id,),
+            ).fetchone()
+            if not token:
+                cutoff = float(turn["ended_at"] or time.time()) + (10.0 if turn["ended_at"] else 0.0)
+                token = self.conn.execute(
+                    """SELECT * FROM token_snapshots WHERE session_id=? AND observed_at<=?
+                       ORDER BY observed_at DESC,id DESC LIMIT 1""",
+                    (session_id, cutoff),
+                ).fetchone()
+            if turn["ended_at"]:
+                rates = self.rates_at(float(turn["ended_at"]) + 10.0)
+        if token is None:
+            token = self.latest_tokens(session_id)
         account = self.latest_account_usage()
         tools = None
         if turn:

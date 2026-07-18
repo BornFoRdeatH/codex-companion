@@ -63,6 +63,7 @@ class UiHost:
         self.stop = False
         self._last_heartbeat = 0.0
         self.runtime_compatibility = "unknown"
+        self.native_context_by_turn: dict[str, float] = {}
         signal.signal(signal.SIGINT, lambda *_: setattr(self, "stop", True))
         if hasattr(signal, "SIGTERM"):
             signal.signal(signal.SIGTERM, lambda *_: setattr(self, "stop", True))
@@ -172,6 +173,7 @@ class UiHost:
             "adapter": adapter or {},
             "dockPosition": self.config.get("ui.dock_position", "right_dock"),
             "dockSize": self.config.get("ui.dock_size", 340),
+            "composerToggle": self.config.get("ui.composer_toggle", True),
             "layoutMode": self.config.get("ui.layout_mode", "reserve_space"),
             "footerPhases": self.config.get("ui.footer_phases", ["commentary", "final_answer"]),
             "locale": "auto" if self.config.get("ui.auto_locale", True) else self.config.get("locale.language", "en"),
@@ -200,14 +202,22 @@ class UiHost:
             except json.JSONDecodeError:
                 continue
             if message.get("type") == "item" and message.get("threadId") and message.get("itemId"):
+                turn_id = str(message.get("turnId")) if message.get("turnId") else None
+                context_percent = message.get("contextUsedPercent")
+                if turn_id and isinstance(context_percent, (int, float)) and 0 <= context_percent <= 100:
+                    self.native_context_by_turn[turn_id] = float(context_percent)
                 self.storage.save_message_snapshot(
                     str(message["threadId"]),
                     str(message["itemId"]),
-                    str(message.get("turnId")) if message.get("turnId") else None,
+                    turn_id,
                     str(message.get("phase") or "unknown"),
                     bool(message.get("completed")),
-                    self._summary_payload(message.get("turnId")),
+                    self._summary_payload(turn_id),
                 )
+            elif message.get("type") == "context" and message.get("turnId"):
+                context_percent = message.get("usedPercent")
+                if isinstance(context_percent, (int, float)) and 0 <= context_percent <= 100:
+                    self.native_context_by_turn[str(message["turnId"])] = float(context_percent)
             elif message.get("type") == "compatibility" and message.get("compatible") is True:
                 self.runtime_compatibility = str(message.get("evidence") or "structural")
             elif message.get("type") == "compatibility" and message.get("compatible") is False:
@@ -216,6 +226,23 @@ class UiHost:
     def _summary_payload(self, turn_id: str | None) -> dict[str, Any]:
         summary = self.storage.summary(None, turn_id)
         summary["view"] = derive(summary, self.config)
+        selected_turn = summary.get("turn") or {}
+        selected_turn_id = str(selected_turn.get("turn_id") or turn_id or "")
+        context = summary["view"].get("context") or {}
+        native_percent = self.native_context_by_turn.get(selected_turn_id)
+        if native_percent is not None:
+            window = context.get("window")
+            context.update(
+                {
+                    "used": round(float(window) * native_percent / 100.0) if window else None,
+                    "used_percent": native_percent,
+                    "remaining": round(float(window) * (100.0 - native_percent) / 100.0) if window else None,
+                    "remaining_percent": 100.0 - native_percent,
+                    "source": "observed_renderer",
+                }
+            )
+        elif turn_id and selected_turn.get("ended_at"):
+            context.update({"used": None, "used_percent": None, "remaining": None, "remaining_percent": None, "source": "unavailable"})
         return summary
 
     def _write_status(self, **value: Any) -> None:

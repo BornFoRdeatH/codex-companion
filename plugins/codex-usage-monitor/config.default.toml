@@ -261,6 +261,7 @@ show_stale_data_age = true
 [ui]
 enabled = true
 auto_locale = true
+composer_toggle = true
 default_layout = "dock_and_footers"
 layout_mode = "reserve_space"
 dock_position = "right_dock"

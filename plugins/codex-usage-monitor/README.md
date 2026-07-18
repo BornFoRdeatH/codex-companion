@@ -1,4 +1,4 @@
-# Codex Usage Monitor 0.2.9
+# Codex Usage Monitor 0.2.10
 
 Local Codex token, context, quota, operation, subagent, and account telemetry. Version 0.2 adds an
 optional runtime UI: a persistent resizable dock plus compact telemetry footers below commentary
@@ -51,7 +51,8 @@ This preserves Windows interpreter paths containing spaces, including
 ## Compatibility behavior
 
 An exact package version plus `app.asar` SHA-256 match in `ui/adapters.json` enables footers
-immediately. The included adapters support Windows Codex `26.707.12708.0` and `26.715.3651.0`.
+immediately. The included adapters support Windows Codex `26.707.12708.0`, `26.715.3651.0`, and
+`26.715.4045.0`.
 For an unknown build, the dock starts in a non-blocking probing state. It enables footers only
 after finding a known item contract once or the same privacy-safe structural contract on multiple
 items; absence of an allowlisted fingerprint alone is no longer treated as incompatibility.
@@ -68,14 +69,32 @@ it, leaving native minimize, maximize and close controls unobstructed.
 Its layout is stored in renderer-local state. Completed-message snapshots are stored in the
 plugin SQLite database by `thread_id + item_id`; message text is never read or stored.
 
-The native-style footer distinguishes current context from cumulative task usage. It shows the
-latest model call, cumulative task tokens (`Σ`), estimated context remaining, rate-limit remaining,
-estimated quota delta for the current request (`≈`), and observed execution time. Each footer is
+With `composer_toggle = true` (the default), a native-style side-panel icon is inserted after the
+left composer controls. It hides or restores only the usage dock and persists the choice in
+renderer `localStorage` as `codexUsageDockVisible`; inline footers remain visible. If the structural
+composer anchor cannot be found, the dock is forced visible so the control can never lock itself
+out. Set `composer_toggle = false` to disable this button and ignore hidden state.
+
+The native-style footer is correlated to its real Codex `conversationId + turnId`, not to the
+latest global snapshot. It shows that request's total/input/output/reasoning tokens, native context
+remaining, rate-limit remaining, estimated quota delta (`≈`), and observed execution time. Multiple
+commentary items belonging to one request intentionally share turn-level usage because Codex does
+not expose an authoritative per-fragment token allocation. Each footer is
 an inline Shadow DOM child of its message container, so scrolling and virtualization move it as
 part of the native layout rather than through a delayed fixed-position overlay. Rate-window
 labels come from `window_minutes`; a seven-day snapshot is never labeled as a five-hour window.
 The dock exposes the token breakdown, context window, cache hit, reset countdown, tools,
 compactions, subagents, account fields when available, and data provenance.
+
+Context usage prefers the privacy-safe native renderer percentage used by Codex's own composer
+indicator. `last_input_tokens` is retained only as an estimated fallback because it can include
+cached/replayed input and does not necessarily equal the occupied context after compaction.
+Historical messages without a captured native percentage show context as unavailable instead of
+reusing the current request's value.
+
+The built-in **Usage Summary** widget is live: it shows current request tokens, context remaining,
+the longest available rate-window remainder, and its update time. It is no longer a static
+"Live telemetry" placeholder.
 
 The UI host sends live snapshots at `ui.refresh_interval_ms`, writes a five-second heartbeat to
 `ui-status.json`, and reconnects after transient CDP or SQLite errors. Diagnostics are retained in
