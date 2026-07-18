@@ -1,7 +1,7 @@
 {
   "name": "codex-usage-monitor",
-  "version": "0.3.0",
-  "description": "Session-isolated Codex telemetry with Usage Guard, History, dock, and message footers.",
+  "version": "0.4.0",
+  "description": "Session-isolated Codex telemetry with a local Usage Advisor, Guard, History, dock, and message footers.",
   "author": {
     "name": "Local"
   },
@@ -16,7 +16,7 @@
   "interface": {
     "displayName": "Codex Usage Monitor",
     "shortDescription": "Local token, quota, and context telemetry",
-    "longDescription": "Shows session-isolated Codex usage telemetry, local alerts, privacy-safe history, and verified message footers without adding monitor text to model context.",
+    "longDescription": "Shows session-isolated Codex usage telemetry, local token-saving advice, privacy-safe history, alerts, and verified message footers without adding monitor text to model context.",
     "developerName": "Local",
     "category": "Productivity",
     "capabilities": [

@@ -39,6 +39,9 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(loaded.get("ui.guard.cooldown_minutes"), 15)
             self.assertEqual(loaded.get("ui.history.default_scope"), "current_chat")
             self.assertEqual(loaded.get("ui.history.default_range"), "7d")
+            self.assertTrue(loaded.get("ui.advisor.enabled"))
+            self.assertFalse(loaded.get("ui.advisor.prompt_coach.enabled"))
+            self.assertEqual(loaded.get("ui.advisor.baseline_window"), 50)
 
     def test_unknown_key_warns_and_privacy_is_forced(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -9,9 +9,10 @@ import traceback
 from pathlib import Path
 from typing import Any
 
+from .advisor import analyze_prompt
 from .collector import ensure_collector
 from .config import ConfigError, LoadedConfig, load_config
-from .render import content_hash, render
+from .render import content_hash, derive, render
 from .paths import resolve_plugin_data
 from .storage import Storage
 from .transcript import TranscriptParser
@@ -71,7 +72,11 @@ def main() -> int:
             and config.get("experimental.parse_session_jsonl", True)
         ):
             TranscriptParser(storage).ingest(payload.get("transcript_path"), session_id)
-        _record_event(storage, payload, event, session_id, turn_id)
+        _record_event(storage, payload, event, session_id, turn_id, config)
+        if event == "Stop" and turn_id:
+            completed = storage.summary(session_id, turn_id, int(config.get("ui.advisor.baseline_window", 50)))
+            advice = derive(completed, config).get("advisor") or {}
+            storage.save_advice(session_id, str(turn_id), advice.get("all_items") or advice.get("items") or [])
         if refresh_enabled and config.get("storage.enabled", True):
             ensure_collector(plugin_root, plugin_data, storage)
         _prune_if_due(storage, config)
@@ -104,9 +109,16 @@ def _record_event(
     event: str,
     session_id: str,
     turn_id: str | None,
+    config: LoadedConfig,
 ) -> None:
     if event == "UserPromptSubmit" and turn_id:
         storage.start_turn(turn_id, session_id)
+        if config.get("ui.advisor.prompt_coach.enabled", False):
+            # This is the only point where prompt text is touched. It remains in
+            # this stack frame and only numeric features/codes may be persisted.
+            features = analyze_prompt(payload.get("prompt") if isinstance(payload.get("prompt"), str) else "")
+            if config.get("ui.advisor.prompt_coach.store_derived_features", True):
+                storage.save_prompt_features(turn_id, session_id, features)
     elif event == "Stop" and turn_id:
         storage.end_turn(turn_id)
     elif event == "PreToolUse":

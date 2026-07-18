@@ -1,4 +1,4 @@
-# Codex Usage Monitor 0.3.0
+# Codex Usage Monitor 0.4.0
 
 Local Codex token, context, quota, operation, subagent, and account telemetry. Version 0.2 adds an
 optional runtime UI: a persistent resizable dock plus compact telemetry footers below commentary
@@ -119,6 +119,34 @@ The UI host sends live snapshots at `ui.refresh_interval_ms`, writes a five-seco
 `ui-status.json`, and reconnects after transient CDP or SQLite errors. Diagnostics are retained in
 `ui-host-error.log`; prompt, response, and tool contents are never written there.
 
+### Usage Advisor
+
+The local **Usage Advisor** recommends one concrete token-saving action from measured telemetry.
+It can suggest starting a new chat when renderer-observed context is at least 85%, avoiding new
+scope after repeated compactions, narrowing an unusually expensive request, reducing exploration
+after excessive or failed tool calls, using lower reasoning effort for a tool-light outlier, or
+conserving a nearly exhausted global quota. Advice describes the observed signal; it does not judge
+answer quality and never calls a model.
+
+After ten completed turns, the Advisor compares the current turn with the median and median absolute
+deviation of the last 50 completed turns for the same model. Until then, conservative fixed
+thresholds work immediately. Unfinished turns, unavailable values, reset discontinuities, and turns
+from other models are excluded. The dock shows one prioritized tip, warning/critical tips add a
+composer badge, and completed final-answer footers retain their turn's tip. Clicking the dock tip
+shows numeric evidence, confidence, provenance, and the suggested action; dismiss state has a
+30-minute per-type cooldown. History displays advice markers and the personal token baseline.
+
+Prompt Coach is a separate opt-in feature. When enabled, the `UserPromptSubmit.prompt` hook field is
+examined locally for structural signals in Ukrainian and English, then immediately discarded. Only
+numeric counts and recommendation codes may be retained; prompt text, fragments, matched phrases,
+and hashes never enter SQLite, logs, snapshots, CDP payloads, or exports.
+
+```toml
+[ui.advisor.prompt_coach]
+enabled = false
+store_derived_features = true
+```
+
 ### Localization
 
 `ui.auto_locale = true` follows the Codex/OS browser locale. Ukrainian (`uk`) and English (`en`)
@@ -177,8 +205,8 @@ transcript, and read/write SQLite snapshots. Failed App Server starts use a five
 
 On first use, `config.default.toml` is copied to `%PLUGIN_DATA%/config.toml`. When the CLI is run
 outside a hook, it resolves the active marketplace data directory under `~/.codex/plugins/data`.
-Version 0.3 keeps public config `schema_version = 1`, uses internal SQLite schema v2, and adds
-`[ui.guard]` and `[ui.history]`. Existing configs inherit
+Version 0.4 keeps public config `schema_version = 1`, uses internal SQLite schema v3, and adds
+`[ui.advisor]` plus opt-in `[ui.advisor.prompt_coach]`. Existing configs inherit
 new defaults. Unknown keys warn and invalid values fall back safely.
 
 The privacy invariants `never_store_auth_tokens`, `never_store_prompt_contents`,
@@ -194,6 +222,7 @@ scripts\usage-monitor.cmd config-path
 scripts\usage-monitor.cmd validate-config
 scripts\usage-monitor.cmd export-summary
 scripts\usage-monitor.cmd export-history --session-id <id> --since 7d --format json
+scripts\usage-monitor.cmd advice --session-id <id>
 scripts\usage-monitor.cmd reset-cache --yes
 scripts\usage-monitor.cmd ui install
 scripts\usage-monitor.cmd ui launch

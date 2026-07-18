@@ -1,6 +1,6 @@
 # BornFoRdeatH Codex Plugins
 
-Public Codex plugin marketplace containing **Codex Usage Monitor 0.3.0**, with session-isolated local telemetry, Usage Guard, and
+Public Codex plugin marketplace containing **Codex Usage Monitor 0.4.0**, with session-isolated local telemetry, Usage Advisor, Usage Guard, and
 optional memory-only runtime UI for the Codex desktop app.
 
 ## Install from GitHub

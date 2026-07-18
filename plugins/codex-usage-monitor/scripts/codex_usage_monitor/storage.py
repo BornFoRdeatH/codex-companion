@@ -7,6 +7,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from .advisor import robust_stats
+
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS metadata (
@@ -145,10 +147,39 @@ CREATE TABLE IF NOT EXISTS turn_aggregates (
     context_source TEXT,
     primary_quota_delta REAL,
     secondary_quota_delta REAL,
+    tool_calls INTEGER,
+    failed_tool_calls INTEGER,
+    file_edits INTEGER,
+    compaction_count INTEGER,
+    cache_hit_percent REAL,
+    reasoning_ratio REAL,
     materialized_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS aggregate_session_time ON turn_aggregates(session_id, ended_at);
 CREATE INDEX IF NOT EXISTS aggregate_time ON turn_aggregates(ended_at);
+CREATE TABLE IF NOT EXISTS prompt_features (
+    turn_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    char_count INTEGER NOT NULL,
+    line_count INTEGER NOT NULL,
+    section_count INTEGER NOT NULL,
+    bullet_count INTEGER NOT NULL,
+    clause_count INTEGER NOT NULL,
+    recommendation_codes_json TEXT NOT NULL,
+    analyzed_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS turn_advice (
+    session_id TEXT NOT NULL,
+    turn_id TEXT NOT NULL,
+    code TEXT NOT NULL,
+    level TEXT NOT NULL,
+    confidence TEXT NOT NULL,
+    source TEXT NOT NULL,
+    evidence_json TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    PRIMARY KEY(session_id,turn_id,code)
+);
+CREATE INDEX IF NOT EXISTS advice_session_time ON turn_advice(session_id,created_at);
 """
 
 
@@ -161,17 +192,28 @@ class Storage:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.executescript(SCHEMA)
+        previous_schema = self.get_meta("schema_version")
         self._ensure_column("rate_limit_snapshots", "reset_credit_count", "INTEGER")
         self._ensure_column("rate_limit_snapshots", "reset_credit_details_json", "TEXT")
         self._ensure_column("ui_message_snapshots", "first_seen_at", "REAL")
         self._ensure_column("ui_message_snapshots", "completed_at", "REAL")
+        for column, declaration in (
+            ("tool_calls", "INTEGER"), ("failed_tool_calls", "INTEGER"), ("file_edits", "INTEGER"),
+            ("compaction_count", "INTEGER"), ("cache_hit_percent", "REAL"), ("reasoning_ratio", "REAL"),
+        ):
+            self._ensure_column("turn_aggregates", column, declaration)
         self.conn.execute("UPDATE ui_message_snapshots SET first_seen_at=observed_at WHERE first_seen_at IS NULL")
         if self.get_meta("removed_legacy_index_snapshots") != "1":
             self.conn.execute("DELETE FROM ui_message_snapshots WHERE thread_id='/index.html'")
             self.set_meta("removed_legacy_index_snapshots", "1")
         self.conn.commit()
-        self.set_meta("schema_version", "2")
+        self.set_meta("schema_version", "3")
         self.materialize_completed_turns()
+        if previous_schema != "3":
+            turn_ids = self.conn.execute("SELECT turn_id FROM turns WHERE ended_at IS NOT NULL").fetchall()
+            for row in turn_ids:
+                self.materialize_turn(str(row["turn_id"]), commit=False)
+            self.conn.commit()
 
     def _ensure_column(self, table: str, column: str, declaration: str) -> None:
         columns = {row["name"] for row in self.conn.execute(f"PRAGMA table_info({table})")}
@@ -244,6 +286,33 @@ class Storage:
             (turn_id, session_id, now, *values),
         )
         self.conn.commit()
+
+    def save_prompt_features(self, turn_id: str, session_id: str, features: dict[str, Any]) -> None:
+        codes = [str(code) for code in features.get("recommendation_codes", [])]
+        self.conn.execute(
+            """INSERT INTO prompt_features(turn_id,session_id,char_count,line_count,section_count,bullet_count,
+               clause_count,recommendation_codes_json,analyzed_at) VALUES(?,?,?,?,?,?,?,?,?)
+               ON CONFLICT(turn_id) DO UPDATE SET char_count=excluded.char_count,line_count=excluded.line_count,
+               section_count=excluded.section_count,bullet_count=excluded.bullet_count,clause_count=excluded.clause_count,
+               recommendation_codes_json=excluded.recommendation_codes_json,analyzed_at=excluded.analyzed_at""",
+            (turn_id, session_id, int(features.get("char_count") or 0), int(features.get("line_count") or 0),
+             int(features.get("section_count") or 0), int(features.get("bullet_count") or 0),
+             int(features.get("clause_count") or 0), json.dumps(codes, separators=(",", ":")), time.time()),
+        )
+        self.conn.commit()
+
+    def prompt_features(self, turn_id: str | None) -> dict[str, Any] | None:
+        if not turn_id:
+            return None
+        row = self.conn.execute("SELECT * FROM prompt_features WHERE turn_id=?", (turn_id,)).fetchone()
+        if not row:
+            return None
+        value = dict(row)
+        try:
+            value["recommendation_codes"] = json.loads(value.pop("recommendation_codes_json"))
+        except json.JSONDecodeError:
+            value["recommendation_codes"] = []
+        return value
 
     def end_turn(self, turn_id: str) -> None:
         self.conn.execute("UPDATE turns SET ended_at=COALESCE(ended_at,?) WHERE turn_id=?", (time.time(), turn_id))
@@ -525,15 +594,27 @@ class Storage:
             value = float(rate["used_percent"]) - float(baseline)
             return value if value >= 0 else None
         tools = self.conn.execute(
-            "SELECT COALESCE(SUM(CASE WHEN ended_at IS NOT NULL THEN ended_at-started_at ELSE 0 END),0) seconds FROM tool_calls WHERE turn_id=?",
+            """SELECT COALESCE(SUM(CASE WHEN ended_at IS NOT NULL THEN ended_at-started_at ELSE 0 END),0) seconds,
+               COUNT(*) calls,SUM(CASE WHEN success=0 THEN 1 ELSE 0 END) failures,
+               SUM(CASE WHEN category='file_edit' THEN 1 ELSE 0 END) edits FROM tool_calls WHERE turn_id=?""",
             (turn_id,),
         ).fetchone()
+        compactions = self.conn.execute(
+            "SELECT COUNT(*) count FROM compactions WHERE turn_id=? AND phase='post'", (turn_id,)
+        ).fetchone()
         session = self.conn.execute("SELECT model FROM sessions WHERE session_id=?", (turn["session_id"],)).fetchone()
+        input_tokens = delta("input_tokens", "baseline_input")
+        cached_tokens = delta("cached_input_tokens", "baseline_cached")
+        total_tokens = delta("total_tokens", "baseline_total")
+        reasoning_tokens = delta("reasoning_output_tokens", "baseline_reasoning")
+        cache_hit = 100.0 * cached_tokens / input_tokens if input_tokens else None
+        reasoning_ratio = 100.0 * reasoning_tokens / total_tokens if total_tokens else None
         self.conn.execute(
             """INSERT INTO turn_aggregates(turn_id,session_id,started_at,ended_at,model,total_tokens,input_tokens,
                cached_input_tokens,output_tokens,reasoning_tokens,duration_seconds,tool_seconds,ending_context_percent,
-               context_source,primary_quota_delta,secondary_quota_delta,materialized_at)
-               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+               context_source,primary_quota_delta,secondary_quota_delta,tool_calls,failed_tool_calls,file_edits,
+               compaction_count,cache_hit_percent,reasoning_ratio,materialized_at)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(turn_id) DO UPDATE SET model=excluded.model,total_tokens=excluded.total_tokens,
                input_tokens=excluded.input_tokens,cached_input_tokens=excluded.cached_input_tokens,
                output_tokens=excluded.output_tokens,reasoning_tokens=excluded.reasoning_tokens,
@@ -541,18 +622,23 @@ class Storage:
                ending_context_percent=COALESCE(excluded.ending_context_percent,turn_aggregates.ending_context_percent),
                context_source=COALESCE(excluded.context_source,turn_aggregates.context_source),
                primary_quota_delta=excluded.primary_quota_delta,secondary_quota_delta=excluded.secondary_quota_delta,
+               tool_calls=excluded.tool_calls,failed_tool_calls=excluded.failed_tool_calls,file_edits=excluded.file_edits,
+               compaction_count=excluded.compaction_count,cache_hit_percent=excluded.cache_hit_percent,
+               reasoning_ratio=excluded.reasoning_ratio,
                materialized_at=excluded.materialized_at""",
             (turn_id, turn["session_id"], turn["started_at"], turn["ended_at"], session["model"] if session else None,
-             delta("total_tokens", "baseline_total"), delta("input_tokens", "baseline_input"),
-             delta("cached_input_tokens", "baseline_cached"), delta("output_tokens", "baseline_output"),
-             delta("reasoning_output_tokens", "baseline_reasoning"), float(turn["ended_at"])-float(turn["started_at"]),
+             total_tokens, input_tokens, cached_tokens, delta("output_tokens", "baseline_output"),
+             reasoning_tokens, float(turn["ended_at"])-float(turn["started_at"]),
              float(tools["seconds"] or 0), ending_context_percent, context_source,
-             quota(primary, turn["baseline_primary_percent"]), quota(secondary, turn["baseline_secondary_percent"]), time.time()),
+             quota(primary, turn["baseline_primary_percent"]), quota(secondary, turn["baseline_secondary_percent"]),
+             int(tools["calls"] or 0), int(tools["failures"] or 0), int(tools["edits"] or 0),
+             int(compactions["count"] or 0), cache_hit, reasoning_ratio, time.time()),
         )
         if commit:
             self.conn.commit()
 
-    def history(self, session_id: str | None, since: float | None, scope: str = "current_chat", limit: int = 500) -> list[dict[str, Any]]:
+    def history(self, session_id: str | None, since: float | None, scope: str = "current_chat", limit: int = 500,
+                baseline_window: int = 50) -> list[dict[str, Any]]:
         self.materialize_completed_turns()
         where, params = ["ended_at>=?"], [float(since or 0)]
         if scope == "current_chat":
@@ -567,11 +653,59 @@ class Storage:
             (*params, max(1, min(int(limit), 5000))),
         ).fetchall()
         result = []
+        baselines: dict[str, dict[str, Any]] = {}
         for row in reversed(rows):
             value = dict(row)
             value["session_label"] = f"{time.strftime('%Y-%m-%d %H:%M', time.localtime(value['started_at']))} · {value.get('model') or '—'} · {value['session_id'][:8]}"
+            advice = self.conn.execute(
+                "SELECT code,level,confidence,evidence_json FROM turn_advice WHERE turn_id=? ORDER BY created_at",
+                (value["turn_id"],),
+            ).fetchall()
+            value["advice"] = [{**dict(item), "evidence": json.loads(item["evidence_json"])} for item in advice]
+            for item in value["advice"]:
+                item.pop("evidence_json", None)
+            model_key = str(value.get("model") or "")
+            if model_key not in baselines:
+                baselines[model_key] = self.advisor_baseline(model_key, baseline_window)
+            value["baseline_total_tokens"] = (baselines[model_key].get("total_tokens") or {}).get("median")
             result.append(value)
         return result
+
+    def advisor_baseline(self, model: str | None, window: int = 50, exclude_turn_id: str | None = None) -> dict[str, Any]:
+        if not model:
+            return {}
+        exclude = "AND turn_id<>?" if exclude_turn_id else ""
+        params: tuple[Any, ...] = (model, exclude_turn_id, max(1, min(int(window), 500))) if exclude_turn_id else (
+            model, max(1, min(int(window), 500)))
+        rows = self.conn.execute(
+            """SELECT total_tokens,primary_quota_delta,tool_calls,tool_seconds,reasoning_tokens
+               FROM turn_aggregates WHERE model=? AND total_tokens IS NOT NULL """ + exclude +
+            " ORDER BY ended_at DESC LIMIT ?",
+            params,
+        ).fetchall()
+        return {
+            "model": model,
+            "total_tokens": robust_stats(row["total_tokens"] for row in rows),
+            "quota_delta": robust_stats(row["primary_quota_delta"] for row in rows),
+            "tool_calls": robust_stats(row["tool_calls"] for row in rows),
+            "tool_seconds": robust_stats(row["tool_seconds"] for row in rows),
+            "reasoning_tokens": robust_stats(row["reasoning_tokens"] for row in rows),
+        }
+
+    def save_advice(self, session_id: str, turn_id: str, items: list[dict[str, Any]]) -> None:
+        for item in items:
+            evidence = item.get("evidence") or {}
+            if any(not (value is None or isinstance(value, (bool, int, float))) for value in evidence.values()):
+                continue
+            self.conn.execute(
+                """INSERT INTO turn_advice(session_id,turn_id,code,level,confidence,source,evidence_json,created_at)
+                   VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(session_id,turn_id,code) DO UPDATE SET
+                   level=excluded.level,confidence=excluded.confidence,source=excluded.source,
+                   evidence_json=excluded.evidence_json,created_at=excluded.created_at""",
+                (session_id, turn_id, item["code"], item["level"], item["confidence"], item["source"],
+                 json.dumps(evidence, separators=(",", ":")), time.time()),
+            )
+        self.conn.commit()
 
     def rolling_forecast(self) -> dict[str, Any]:
         latest = self.latest_rates()
@@ -615,7 +749,7 @@ class Storage:
         self.conn.commit()
         return cursor.rowcount
 
-    def summary(self, session_id: str | None, turn_id: str | None) -> dict[str, Any]:
+    def summary(self, session_id: str | None, turn_id: str | None, baseline_window: int = 50) -> dict[str, Any]:
         turn = self.conn.execute("SELECT * FROM turns WHERE turn_id=?", (turn_id,)).fetchone() if turn_id else None
         if not turn and session_id:
             turn = self.latest_turn(session_id)
@@ -667,6 +801,10 @@ class Storage:
                FROM subagents WHERE session_id=?""",
             (session_id,),
         ).fetchone() if session_id else None
+        model = None
+        if turn:
+            session_row = self.conn.execute("SELECT model FROM sessions WHERE session_id=?", (turn["session_id"],)).fetchone()
+            model = session_row["model"] if session_row else None
         return {
             "token": dict(token) if token else None,
             "turn": dict(turn) if turn else None,
@@ -676,6 +814,8 @@ class Storage:
             "compactions": dict(compactions) if compactions else {"count": 0, "last_time": None},
             "subagents": dict(subagents) if subagents else {"started": 0, "completed": 0, "active": 0},
             "rolling_forecast": self.rolling_forecast(),
+            "advisor_baseline": self.advisor_baseline(model, baseline_window, str(turn["turn_id"]) if turn else None),
+            "prompt_features": self.prompt_features(str(turn["turn_id"])) if turn else None,
         }
 
     def reset(self) -> None:
@@ -688,6 +828,8 @@ class Storage:
             self.conn.execute(f"DELETE FROM {table} WHERE observed_at < ?", (cutoff,))
         self.conn.execute("DELETE FROM turns WHERE ended_at IS NOT NULL AND ended_at < ?", (cutoff,))
         self.conn.execute("DELETE FROM turn_aggregates WHERE ended_at < ?", (cutoff,))
+        self.conn.execute("DELETE FROM prompt_features WHERE analyzed_at < ?", (cutoff,))
+        self.conn.execute("DELETE FROM turn_advice WHERE created_at < ?", (cutoff,))
         self.conn.execute("DELETE FROM tool_calls WHERE ended_at IS NOT NULL AND ended_at < ?", (cutoff,))
         self.conn.execute("DELETE FROM subagents WHERE ended_at IS NOT NULL AND ended_at < ?", (cutoff,))
         self.conn.commit()

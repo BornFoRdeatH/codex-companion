@@ -93,6 +93,19 @@ def _validate(data: dict[str, Any]) -> list[str]:
     if data["ui"]["history"]["max_turns"] < 1:
         warnings.append("ui.history.max_turns must be positive; using 500")
         data["ui"]["history"]["max_turns"] = 500
+    advisor = data["ui"]["advisor"]
+    if advisor["cooldown_minutes"] < 0:
+        warnings.append("ui.advisor.cooldown_minutes must be non-negative; using 30")
+        advisor["cooldown_minutes"] = 30
+    if advisor["min_personal_turns"] < 1:
+        warnings.append("ui.advisor.min_personal_turns must be positive; using 10")
+        advisor["min_personal_turns"] = 10
+    if advisor["baseline_window"] < advisor["min_personal_turns"]:
+        warnings.append("ui.advisor.baseline_window must cover min_personal_turns; using 50")
+        advisor["baseline_window"] = 50
+    if advisor["max_visible"] < 1:
+        warnings.append("ui.advisor.max_visible must be positive; using 1")
+        advisor["max_visible"] = 1
     for key in ("progress_bar_width", "max_width", "max_lines"):
         if data["display"][key] < 1:
             warnings.append(f"display.{key} must be positive; using default")

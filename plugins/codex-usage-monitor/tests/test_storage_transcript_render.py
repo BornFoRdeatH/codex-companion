@@ -139,7 +139,7 @@ class StorageTranscriptRenderTests(unittest.TestCase):
         self.assertEqual(_delta({"used_percent": 24}, 23), 1)
         self.assertIsNone(_delta({"used_percent": 2}, 99))
 
-    def test_schema_v2_history_is_session_scoped_and_privacy_safe(self) -> None:
+    def test_schema_v3_history_is_session_scoped_and_privacy_safe(self) -> None:
         for session in ("one", "two"):
             self.storage.upsert_session(session, None, "gpt-test", None)
             self.storage.start_turn(f"{session}-turn", session)
@@ -149,7 +149,7 @@ class StorageTranscriptRenderTests(unittest.TestCase):
                  "last": {"input_tokens": 80, "cached_input_tokens": 40, "output_tokens": 20, "total_tokens": 100},
                  "model_context_window": 1000}, time.time(), "test")
             self.storage.end_turn(f"{session}-turn")
-        self.assertEqual(self.storage.get_meta("schema_version"), "2")
+        self.assertEqual(self.storage.get_meta("schema_version"), "3")
         current = self.storage.history("one", None, "current_chat", 500)
         self.assertEqual([row["session_id"] for row in current], ["one"])
         self.assertEqual(len(self.storage.history(None, None, "all_chats", 500)), 2)

@@ -15,6 +15,7 @@ from .storage import Storage
 from .ui_launcher import discover_codex_app, launch_codex, reserve_loopback_port
 from .widgets import load_widgets, markdown_to_html, sanitize_html
 from .render import derive
+from .advisor import evaluate as evaluate_advice
 
 
 BINDING = "__codexUsageHost"
@@ -184,6 +185,7 @@ class UiHost:
             "security": self.config.get("ui.security", {}),
             "guard": self.config.get("ui.guard", {}),
             "historyConfig": self.config.get("ui.history", {}),
+            "advisorConfig": self.config.get("ui.advisor", {}),
         }
 
     def _push_snapshot(self, connection: CdpConnection) -> None:
@@ -253,7 +255,8 @@ class UiHost:
         since = time.time()-seconds if seconds else None
         try:
             rows = self.storage.history(self.active_thread_id, since, scope,
-                                        int(self.config.get("ui.history.max_turns", 500)))
+                                        int(self.config.get("ui.history.max_turns", 500)),
+                                        int(self.config.get("ui.advisor.baseline_window", 50)))
             payload = {"requestId": request_id, "scope": scope, "range": range_name, "turns": rows,
                        "activeThreadId": self.active_thread_id}
         except (ValueError, sqlite3.Error) as exc:
@@ -262,7 +265,7 @@ class UiHost:
         connection.call("Runtime.evaluate", {"expression": expression, "returnByValue": False}, timeout=1.0)
 
     def _summary_payload(self, turn_id: str | None, session_id: str | None = None) -> dict[str, Any]:
-        summary = self.storage.summary(session_id, turn_id)
+        summary = self.storage.summary(session_id, turn_id, int(self.config.get("ui.advisor.baseline_window", 50)))
         summary["view"] = derive(summary, self.config)
         selected_turn = summary.get("turn") or {}
         selected_turn_id = str(selected_turn.get("turn_id") or turn_id or "")
@@ -282,6 +285,12 @@ class UiHost:
             )
         elif turn_id and selected_turn.get("ended_at"):
             context.update({"used": None, "used_percent": None, "remaining": None, "remaining_percent": None, "source": "unavailable"})
+        summary["view"]["advisor"] = evaluate_advice(summary, summary["view"], self.config)
+        if selected_turn.get("ended_at") and selected_turn_id and selected_session_id:
+            self.storage.save_advice(
+                selected_session_id, selected_turn_id,
+                summary["view"]["advisor"].get("all_items") or summary["view"]["advisor"].get("items") or [],
+            )
         return summary
 
     def _write_status(self, **value: Any) -> None:

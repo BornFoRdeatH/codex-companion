@@ -10,6 +10,7 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .config import LoadedConfig
+from .advisor import evaluate as evaluate_advice
 
 
 def compact_number(value: Any, decimals: int = 1) -> str:
@@ -171,6 +172,7 @@ def derive(summary: dict[str, Any], config: LoadedConfig) -> dict[str, Any]:
     if rolling.get("remaining_turns") is not None:
         result["forecast"]["remaining_turns"] = rolling["remaining_turns"]
     result["guard"] = _guard(result, config)
+    result["advisor"] = evaluate_advice(summary, result, config)
     return result
 
 

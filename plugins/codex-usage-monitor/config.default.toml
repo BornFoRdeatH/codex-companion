@@ -282,6 +282,20 @@ default_scope = "current_chat"
 default_range = "7d"
 max_turns = 500
 
+[ui.advisor]
+enabled = true
+show_in_dock = true
+show_in_final_footer = true
+show_composer_badge = true
+cooldown_minutes = 30
+min_personal_turns = 10
+baseline_window = 50
+max_visible = 1
+
+[ui.advisor.prompt_coach]
+enabled = false
+store_derived_features = true
+
 [ui.widgets]
 directories = ["${PLUGIN_ROOT}/ui/widgets", "${PLUGIN_DATA}/ui/widgets"]
 ordering = []

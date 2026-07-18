@@ -2,7 +2,7 @@
   "name": "bornfordeath-plugins",
   "interface": {
     "displayName": "BornFoRdeatH Plugins",
-    "description": "Personal productivity plugins, including Codex Usage Monitor with session isolation, Usage Guard, and History."
+    "description": "Personal productivity plugins, including Codex Usage Monitor with session isolation, Usage Advisor, Guard, and History."
   },
   "plugins": [
     {

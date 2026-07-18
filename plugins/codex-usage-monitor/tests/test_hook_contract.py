@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import sqlite3
 from pathlib import Path
 
 
@@ -61,6 +62,33 @@ class HookContractTests(unittest.TestCase):
     def test_non_display_events_are_silent(self) -> None:
         value = self.run_hook("PreToolUse", {"tool_use_id": "tool-1", "tool_name": "Bash"})
         self.assertEqual(value, {"continue": True})
+
+    def test_opt_in_prompt_coach_persists_only_derived_features(self) -> None:
+        secret = "ULTRA SECRET PROMPT: implement three things without dependencies"
+        with tempfile.TemporaryDirectory() as directory:
+            data = Path(directory)
+            config = (PLUGIN_ROOT / "config.default.toml").read_text(encoding="utf-8")
+            config = config.replace("[ui.advisor.prompt_coach]\nenabled = false", "[ui.advisor.prompt_coach]\nenabled = true")
+            (data / "config.toml").write_text(config, encoding="utf-8")
+            env = os.environ.copy()
+            env.update({"PLUGIN_ROOT": str(PLUGIN_ROOT), "PLUGIN_DATA": str(data),
+                        "CODEX_USAGE_MONITOR_NO_COLLECTOR": "1"})
+            result = subprocess.run(
+                [sys.executable, str(HOOK)], input=json.dumps({"session_id": "s", "turn_id": "t",
+                    "hook_event_name": "UserPromptSubmit", "model": "gpt-test", "prompt": secret}),
+                capture_output=True, text=True, encoding="utf-8", env=env, timeout=10, check=True,
+            )
+            self.assertNotIn(secret, result.stdout)
+            database = data / "usage.sqlite3"
+            connection = sqlite3.connect(database)
+            try:
+                row = connection.execute("SELECT * FROM prompt_features").fetchone()
+                self.assertIsNotNone(row)
+            finally:
+                connection.close()
+            for path in data.rglob("*"):
+                if path.is_file() and path.suffix not in {".sqlite3", ".db", ".wal", ".shm"}:
+                    self.assertNotIn(secret, path.read_text(encoding="utf-8", errors="ignore"))
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ from pathlib import Path
 from .collector import ensure_collector, find_codex_executable
 from .config import ConfigError, load_config
 from .render import render
+from .render import derive
 from .storage import Storage
 from .paths import resolve_plugin_data
 from .ui_host import UiHost, fingerprint, load_adapters, match_adapter
@@ -53,6 +54,8 @@ def parser() -> argparse.ArgumentParser:
     history.add_argument("--session-id")
     history.add_argument("--since", default="7d")
     history.add_argument("--format", choices=("json", "csv"), default="json")
+    advice = sub.add_parser("advice")
+    advice.add_argument("--session-id", required=True)
     reset = sub.add_parser("reset-cache")
     reset.add_argument("--yes", action="store_true")
     ui = sub.add_parser("ui")
@@ -116,14 +119,20 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(details, indent=2, ensure_ascii=False))
                 return 0 if executable else 1
         if args.command == "status":
-            print(console_safe(render(storage.summary(args.session_id, None), config, args.profile)))
+            print(console_safe(render(storage.summary(args.session_id, None, int(config.get("ui.advisor.baseline_window", 50))), config, args.profile)))
             return 0
         if args.command == "export-summary":
-            print(json.dumps(storage.summary(args.session_id, None), indent=2, ensure_ascii=False, default=str))
+            print(json.dumps(storage.summary(args.session_id, None, int(config.get("ui.advisor.baseline_window", 50))), indent=2, ensure_ascii=False, default=str))
+            return 0
+        if args.command == "advice":
+            summary = storage.summary(args.session_id, None, int(config.get("ui.advisor.baseline_window", 50)))
+            payload = derive(summary, config).get("advisor") or {"items": [], "highest": None}
+            print(json.dumps(payload, indent=2, ensure_ascii=False, default=str))
             return 0
         if args.command == "export-history":
             rows = storage.history(args.session_id, _since_timestamp(args.since),
-                                   "current_chat" if args.session_id else "all_chats", 5000)
+                                   "current_chat" if args.session_id else "all_chats", 5000,
+                                   int(config.get("ui.advisor.baseline_window", 50)))
             if args.format == "json":
                 print(json.dumps(rows, indent=2, ensure_ascii=False, default=str))
             else:
