@@ -241,6 +241,7 @@ redact_commands = false
 redact_project_names = false
 never_store_auth_tokens = true
 never_store_prompt_contents = true
+never_store_assistant_text = true
 
 [experimental]
 parse_session_jsonl = true
@@ -330,6 +331,14 @@ active_refresh_ms = 200
 idle_refresh_ms = 1000
 background_refresh_ms = 5000
 pause_hidden_footers = true
+
+[ui.handoff]
+enabled = true
+generation = "marked_current_turn"
+include_git_summary = true
+open_new_task = true
+copy_fallback = true
+max_summary_chars = 20000
 
 [ui.widgets]
 directories = ["${PLUGIN_ROOT}/ui/widgets", "${PLUGIN_DATA}/ui/widgets"]

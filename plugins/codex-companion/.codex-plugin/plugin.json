@@ -1,7 +1,7 @@
 {
   "name": "codex-usage-monitor",
-  "version": "0.7.0",
-  "description": "Codex Companion adds telemetry, history focus, advisory budgets, project insights, performance controls, and optimization guidance.",
+  "version": "0.8.0",
+  "description": "Codex Companion adds telemetry, a control center, and privacy-safe model-generated handoffs to new tasks.",
   "author": {
     "name": "Local"
   },
@@ -16,7 +16,7 @@
   "interface": {
     "displayName": "Codex Companion",
     "shortDescription": "Telemetry, control center, focus, and optimization",
-    "longDescription": "Extends Codex with session-isolated telemetry, a command palette, advisory budgets, project insights, smart performance scheduling, native history focus, local token-saving advice, privacy-safe history, alerts, and verified message footers.",
+    "longDescription": "Extends Codex with session-isolated telemetry, a command palette, advisory budgets, project insights, smart performance scheduling, Safe Handoff Builder, native history focus, local token-saving advice, privacy-safe history, alerts, and verified message footers.",
     "developerName": "Local",
     "category": "Productivity",
     "capabilities": [

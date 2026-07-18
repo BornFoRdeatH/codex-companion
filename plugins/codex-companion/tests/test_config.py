@@ -34,6 +34,7 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(loaded.get("schema_version"), 1)
             self.assertTrue(loaded.path.exists())
             self.assertTrue(loaded.get("privacy.never_store_prompt_contents"))
+            self.assertTrue(loaded.get("privacy.never_store_assistant_text"))
             self.assertTrue(loaded.get("ui.auto_locale"))
             self.assertTrue(loaded.get("ui.guard.enabled"))
             self.assertEqual(loaded.get("ui.guard.cooldown_minutes"), 15)
@@ -47,6 +48,9 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(loaded.get("ui.focus_mode.load_batch"), 10)
             self.assertTrue(loaded.get("ui.focus_mode.scroll_guard"))
             self.assertEqual(loaded.get("ui.focus_mode.unknown_version_policy"), "probe")
+            self.assertTrue(loaded.get("ui.handoff.enabled"))
+            self.assertEqual(loaded.get("ui.handoff.generation"), "marked_current_turn")
+            self.assertEqual(loaded.get("ui.handoff.max_summary_chars"), 20000)
 
     def test_unknown_key_warns_and_privacy_is_forced(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 import traceback
@@ -37,6 +38,8 @@ REFRESH_CONFIG = {
     "PreCompact": "on_pre_compact",
     "PostCompact": "on_post_compact",
 }
+
+HANDOFF_MARKER = re.compile(r"^\s*<!--\s*codex-companion-handoff:([0-9a-f]{32})\s*-->", re.ASCII)
 
 
 def main() -> int:
@@ -113,10 +116,14 @@ def _record_event(
 ) -> None:
     if event == "UserPromptSubmit" and turn_id:
         storage.start_turn(turn_id, session_id)
+        prompt = payload.get("prompt") if isinstance(payload.get("prompt"), str) else ""
+        marker = HANDOFF_MARKER.match(prompt)
+        if config.get("ui.handoff.enabled", True) and marker:
+            storage.register_handoff(session_id, turn_id, marker.group(1))
         if config.get("ui.advisor.prompt_coach.enabled", False):
             # This is the only point where prompt text is touched. It remains in
             # this stack frame and only numeric features/codes may be persisted.
-            features = analyze_prompt(payload.get("prompt") if isinstance(payload.get("prompt"), str) else "")
+            features = analyze_prompt(prompt)
             if config.get("ui.advisor.prompt_coach.store_derived_features", True):
                 storage.save_prompt_features(turn_id, session_id, features)
     elif event == "Stop" and turn_id:

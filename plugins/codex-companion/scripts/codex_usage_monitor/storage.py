@@ -203,6 +203,16 @@ CREATE TABLE IF NOT EXISTS project_daily_aggregates (
     PRIMARY KEY(cwd_hash,day)
 );
 CREATE INDEX IF NOT EXISTS project_daily_day ON project_daily_aggregates(day);
+CREATE TABLE IF NOT EXISTS handoff_requests (
+    session_id TEXT NOT NULL,
+    turn_id TEXT NOT NULL,
+    nonce TEXT NOT NULL,
+    state TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    expires_at REAL NOT NULL,
+    PRIMARY KEY(session_id,turn_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS handoff_nonce ON handoff_requests(nonce);
 """
 
 
@@ -230,9 +240,9 @@ class Storage:
             self.conn.execute("DELETE FROM ui_message_snapshots WHERE thread_id='/index.html'")
             self.set_meta("removed_legacy_index_snapshots", "1")
         self.conn.commit()
-        self.set_meta("schema_version", "4")
+        self.set_meta("schema_version", "5")
         self.materialize_completed_turns()
-        if previous_schema != "4":
+        if previous_schema != "5":
             turn_ids = self.conn.execute("SELECT turn_id FROM turns WHERE ended_at IS NOT NULL").fetchall()
             for row in turn_ids:
                 self.materialize_turn(str(row["turn_id"]), commit=False)
@@ -367,6 +377,47 @@ class Storage:
         return {"model": model, "project": project,
                 "total_tokens": robust_stats(row["total_tokens"] for row in rows),
                 "quota_delta": robust_stats(row["primary_quota_delta"] for row in rows)}
+
+    def register_handoff(self, session_id: str, turn_id: str, nonce: str, ttl_seconds: int = 3600) -> None:
+        if not session_id or not turn_id or len(nonce) != 32 or any(ch not in "0123456789abcdef" for ch in nonce):
+            raise ValueError("Invalid handoff marker")
+        now = time.time()
+        self.conn.execute("DELETE FROM handoff_requests WHERE expires_at<=?", (now,))
+        self.conn.execute(
+            """INSERT INTO handoff_requests(session_id,turn_id,nonce,state,created_at,expires_at)
+               VALUES(?,?,?,'pending',?,?) ON CONFLICT(session_id,turn_id) DO UPDATE SET
+               nonce=excluded.nonce,state='pending',created_at=excluded.created_at,expires_at=excluded.expires_at""",
+            (session_id, turn_id, nonce, now, now + max(60, min(ttl_seconds, 86400))),
+        )
+        self.conn.commit()
+
+    def pending_handoffs(self, session_id: str | None) -> list[dict[str, Any]]:
+        if not session_id:
+            return []
+        now = time.time()
+        self.conn.execute("DELETE FROM handoff_requests WHERE expires_at<=?", (now,))
+        self.conn.commit()
+        rows = self.conn.execute(
+            """SELECT session_id,turn_id,nonce,state,created_at,expires_at FROM handoff_requests
+               WHERE session_id=? AND state='pending' ORDER BY created_at DESC""", (session_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def finish_handoff(self, session_id: str, turn_id: str, state: str = "completed") -> None:
+        if state not in {"completed", "cancelled"}:
+            raise ValueError("Invalid handoff state")
+        self.conn.execute(
+            "UPDATE handoff_requests SET state=?,expires_at=? WHERE session_id=? AND turn_id=?",
+            (state, time.time() + 300, session_id, turn_id),
+        )
+        self.conn.commit()
+
+    def cancel_pending_handoffs(self) -> int:
+        cursor = self.conn.execute(
+            "UPDATE handoff_requests SET state='cancelled',expires_at=? WHERE state='pending'", (time.time() + 300,)
+        )
+        self.conn.commit()
+        return cursor.rowcount
 
     def get_meta(self, key: str, default: Any = None) -> Any:
         row = self.conn.execute("SELECT value FROM metadata WHERE key=?", (key,)).fetchone()
@@ -967,6 +1018,7 @@ class Storage:
         self.conn.execute("DELETE FROM turn_aggregates WHERE ended_at < ?", (cutoff,))
         self.conn.execute("DELETE FROM prompt_features WHERE analyzed_at < ?", (cutoff,))
         self.conn.execute("DELETE FROM turn_advice WHERE created_at < ?", (cutoff,))
+        self.conn.execute("DELETE FROM handoff_requests WHERE expires_at < ?", (time.time(),))
         self.conn.execute("DELETE FROM tool_calls WHERE ended_at IS NOT NULL AND ended_at < ?", (cutoff,))
         self.conn.execute("DELETE FROM subagents WHERE ended_at IS NOT NULL AND ended_at < ?", (cutoff,))
         self.conn.commit()

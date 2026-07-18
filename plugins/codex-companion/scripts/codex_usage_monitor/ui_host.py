@@ -6,6 +6,7 @@ import math
 import os
 import signal
 import sqlite3
+import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -156,6 +157,8 @@ class UiHost:
         adapter: dict[str, Any] | None,
         adapters: list[dict[str, Any]],
     ) -> None:
+        # A renderer reload discards the in-memory preview by contract.
+        self.storage.cancel_pending_handoffs()
         connection.call("Page.enable")
         connection.call("Runtime.enable")
         connection.call("Runtime.addBinding", {"name": BINDING})
@@ -203,6 +206,7 @@ class UiHost:
             "budgetConfig": self.config.get("ui.budget", {}),
             "projectsConfig": self.config.get("ui.projects", {}),
             "performanceConfig": self.config.get("ui.performance", {}),
+            "handoffConfig": self.config.get("ui.handoff", {}),
         }
 
     def _push_snapshot(self, connection: CdpConnection) -> None:
@@ -215,7 +219,8 @@ class UiHost:
             context = (snapshot.get("view") or {}).get("context") or {}
             self.storage.materialize_turn(str(turn["turn_id"]), context.get("used_percent"), context.get("source"))
         history = self.storage.message_snapshots(self.active_thread_id, limit=500) if self.active_thread_id else []
-        payload = {"snapshot": snapshot, "history": history, "at": time.time(), "activeThreadId": self.active_thread_id}
+        payload = {"snapshot": snapshot, "history": history, "at": time.time(), "activeThreadId": self.active_thread_id,
+                   "pendingHandoffs": self.storage.pending_handoffs(self.active_thread_id)}
         expression = f"window.__codexUsageUpdate&&window.__codexUsageUpdate({json.dumps(payload, separators=(',', ':'))})"
         connection.call("Runtime.evaluate", {"expression": expression, "returnByValue": False}, timeout=1.0)
 
@@ -244,6 +249,10 @@ class UiHost:
                     self.performance_state = value
                     metrics = message.get("diagnostics")
                     self.performance_diagnostics = {"state": value, **(metrics if isinstance(metrics, dict) else {})}
+            elif message.get("type") == "git_summary_request":
+                self._respond_git_summary(connection, message)
+            elif message.get("type") == "handoff_complete" and self.active_thread_id and message.get("turnId"):
+                self.storage.finish_handoff(self.active_thread_id, str(message["turnId"]), "completed")
             elif message.get("type") == "active_thread":
                 raw_id = message.get("threadId")
                 thread_id = str(raw_id)[:128] if raw_id and not str(raw_id).startswith("client-new-thread:") else None
@@ -390,6 +399,60 @@ class UiHost:
             return max(0.1, int(self.config.get("ui.refresh_interval_ms", 200)) / 1000)
         key = {"active": "active_refresh_ms", "idle": "idle_refresh_ms", "background": "background_refresh_ms"}.get(self.performance_state, "idle_refresh_ms")
         return max(0.1, int(self.config.get(f"ui.performance.{key}", 1000)) / 1000)
+
+    def _respond_git_summary(self, connection: CdpConnection, message: dict[str, Any]) -> None:
+        request_id = str(message.get("requestId") or "")[:80]
+        payload: dict[str, Any] = {"requestId": request_id, "files": [], "diffStat": []}
+        if not self.config.get("ui.handoff.include_git_summary", True):
+            payload["disabled"] = True
+        else:
+            cwd = self._session_cwd()
+            if cwd:
+                try:
+                    status = subprocess.run(
+                        ["git", "status", "--porcelain=v1", "--untracked-files=normal"], cwd=cwd,
+                        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=2, check=False,
+                    )
+                    stat = subprocess.run(
+                        ["git", "diff", "--stat", "--"], cwd=cwd, capture_output=True, text=True,
+                        encoding="utf-8", errors="replace", timeout=2, check=False,
+                    )
+                    payload["files"] = [line[:500] for line in status.stdout.splitlines()[:200]]
+                    payload["diffStat"] = [line[:500] for line in stat.stdout.splitlines()[:201]]
+                    payload["truncated"] = len(status.stdout.splitlines()) > 200
+                except (OSError, subprocess.SubprocessError) as exc:
+                    payload["error"] = type(exc).__name__
+            else:
+                payload["error"] = "cwd_unavailable"
+        expression = f"window.__codexCompanionGitUpdate&&window.__codexCompanionGitUpdate({json.dumps(payload, separators=(',', ':'))})"
+        connection.call("Runtime.evaluate", {"expression": expression, "returnByValue": False}, timeout=1.0)
+
+    def _session_cwd(self) -> Path | None:
+        if not self.active_thread_id:
+            return None
+        row = self.storage.conn.execute(
+            "SELECT transcript_path,cwd_hash FROM sessions WHERE session_id=?", (self.active_thread_id,)
+        ).fetchone()
+        path = Path(row["transcript_path"]) if row and row["transcript_path"] else None
+        if not path or not path.is_file() or not row["cwd_hash"]:
+            return None
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                for _ in range(20):
+                    line = handle.readline()
+                    if not line:
+                        break
+                    value = json.loads(line)
+                    if value.get("type") != "session_meta":
+                        continue
+                    cwd = (value.get("payload") or {}).get("cwd")
+                    candidate = Path(str(cwd)).resolve() if cwd else None
+                    digest = hashlib.sha256(str(cwd).encode("utf-8")).hexdigest()[:16] if cwd else None
+                    if candidate and candidate.is_dir() and digest == row["cwd_hash"]:
+                        return candidate
+        except (OSError, json.JSONDecodeError):
+            return None
+        return None
 
     def _summary_payload(self, turn_id: str | None, session_id: str | None = None) -> dict[str, Any]:
         summary = self.storage.summary(session_id, turn_id, int(self.config.get("ui.advisor.baseline_window", 50)))

@@ -1,4 +1,4 @@
-# Codex Companion 0.7.0
+# Codex Companion 0.8.0
 
 Local Codex token, context, quota, operation, subagent, and account telemetry. Version 0.2 adds an
 optional runtime UI: a persistent resizable dock plus compact telemetry footers below commentary
@@ -27,6 +27,24 @@ Smart Performance Mode refreshes at 200 ms while active, 1 second while the dock
 collapsed, and 5 seconds in the background. An IntersectionObserver pauses invisible footer work,
 while mutations remain coalesced into animation frames. Disable `[ui.performance].enabled` to
 restore fixed refresh behavior.
+
+## Safe Handoff Builder
+
+Choose **Create handoff** in Control Center. Companion inserts a nonce-marked Markdown request into
+the current composer but never sends it. After you submit it, Codex uses the current task context to
+produce one final handoff answer. Only that explicitly marked final answer is read into an editable
+in-memory preview; all other message content remains unavailable to Companion.
+
+The preview covers Goal, Current state, Completed work, Decisions and constraints, Changed files,
+Verification, Open issues, Next steps, and short model/context metrics. On request, the host adds
+only `git status --porcelain` paths and `git diff --stat` output from the verified project directory;
+it never reads diff contents or command history. **Open new task** uses the exact renderer adapter
+to invoke the current project's native new-task button and prefills the composer without sending.
+When navigation is unavailable, Companion copies the Markdown and leaves manual instructions.
+
+Handoff text exists only in renderer memory or the user clipboard. SQLite schema v5 stores only
+`session_id`, `turn_id`, random nonce, state, and expiry. Reloading the renderer cancels unfinished
+requests, and completed/expired markers are automatically removed.
 
 ## Native History Focus
 

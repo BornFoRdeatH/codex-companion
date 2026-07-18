@@ -149,7 +149,7 @@ class StorageTranscriptRenderTests(unittest.TestCase):
                  "last": {"input_tokens": 80, "cached_input_tokens": 40, "output_tokens": 20, "total_tokens": 100},
                  "model_context_window": 1000}, time.time(), "test")
             self.storage.end_turn(f"{session}-turn")
-        self.assertEqual(self.storage.get_meta("schema_version"), "4")
+        self.assertEqual(self.storage.get_meta("schema_version"), "5")
         current = self.storage.history("one", None, "current_chat", 500)
         self.assertEqual([row["session_id"] for row in current], ["one"])
         self.assertEqual(len(self.storage.history(None, None, "all_chats", 500)), 2)

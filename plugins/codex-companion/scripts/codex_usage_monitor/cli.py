@@ -71,6 +71,9 @@ def parser() -> argparse.ArgumentParser:
     export_project.add_argument("--cwd-hash", required=True)
     export_project.add_argument("--since", default="30d")
     export_project.add_argument("--format", choices=("json", "csv"), default="json")
+    handoff = sub.add_parser("handoff")
+    handoff_sub = handoff.add_subparsers(dest="handoff_command", required=True)
+    handoff_sub.add_parser("doctor")
     reset = sub.add_parser("reset-cache")
     reset.add_argument("--yes", action="store_true")
     ui = sub.add_parser("ui")
@@ -169,6 +172,19 @@ def main(argv: list[str] | None = None) -> int:
                 writer.writeheader()
                 writer.writerows(rows)
                 print(output.getvalue(), end="")
+            return 0
+        if args.command == "handoff":
+            details = {
+                "enabled": bool(config.get("ui.handoff.enabled", True)),
+                "generation": config.get("ui.handoff.generation"),
+                "privacy": {"stores_prompt": False, "stores_summary": False, "stores_diff_contents": False},
+                "pending_requests": storage.conn.execute(
+                    "SELECT COUNT(*) count FROM handoff_requests WHERE state='pending' AND expires_at>?", (time.time(),)
+                ).fetchone()["count"],
+                "exact_adapter_required": True,
+                "copy_fallback": bool(config.get("ui.handoff.copy_fallback", True)),
+            }
+            print(json.dumps(details, indent=2, ensure_ascii=False))
             return 0
         if args.command == "export-history":
             rows = storage.history(args.session_id, _since_timestamp(args.since),

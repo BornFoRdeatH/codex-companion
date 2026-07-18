@@ -98,7 +98,7 @@ class AdvisorTests(unittest.TestCase):
         self.storage.close()
         self.storage = Storage(path)
         row = self.storage.conn.execute("SELECT * FROM turn_aggregates WHERE turn_id='migration-turn'").fetchone()
-        self.assertEqual(self.storage.get_meta("schema_version"), "4")
+        self.assertEqual(self.storage.get_meta("schema_version"), "5")
         self.assertEqual(row["tool_calls"], 1)
         self.assertEqual(row["failed_tool_calls"], 1)
         self.assertEqual(row["cache_hit_percent"], 50)

@@ -139,11 +139,19 @@ def _validate(data: dict[str, Any]) -> list[str]:
         if performance[key] < 100:
             warnings.append(f"ui.performance.{key} must be at least 100; using {fallback}")
             performance[key] = fallback
+    handoff = data["ui"]["handoff"]
+    if handoff["generation"] != "marked_current_turn":
+        warnings.append("Invalid ui.handoff.generation; using marked_current_turn")
+        handoff["generation"] = "marked_current_turn"
+    if not 1000 <= handoff["max_summary_chars"] <= 100000:
+        warnings.append("ui.handoff.max_summary_chars must be 1000-100000; using 20000")
+        handoff["max_summary_chars"] = 20000
     for key in ("progress_bar_width", "max_width", "max_lines"):
         if data["display"][key] < 1:
             warnings.append(f"display.{key} must be positive; using default")
     data["privacy"]["never_store_auth_tokens"] = True
     data["privacy"]["never_store_prompt_contents"] = True
+    data["privacy"]["never_store_assistant_text"] = True
     data["ui"]["security"]["page_dom_denied"] = True
     data["ui"]["security"]["message_contents_denied"] = True
     data["ui"]["security"]["network_denied"] = True

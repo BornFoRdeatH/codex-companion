@@ -32,6 +32,13 @@
         "latest": "isMostRecentTurn",
         "entry": "entry",
         "wrapper_parent_levels": 1
+      },
+      "new_task_contract": {
+        "strategy": "project-new-task-button",
+        "aria_prefix": {
+          "uk": "Почати нове завдання в ",
+          "en": "Start new task in "
+        }
       }
     }
   ]

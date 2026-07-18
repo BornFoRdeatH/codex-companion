@@ -110,6 +110,7 @@ class UiTests(unittest.TestCase):
         self.assertEqual(current["turn_wrapper_contract"]["identity"], ["conversationId", "turnId"])
         self.assertEqual(current["native_focus_contract"]["turn_number"], "turnNumber")
         self.assertEqual(current["native_focus_contract"]["wrapper_parent_levels"], 1)
+        self.assertEqual(current["new_task_contract"]["strategy"], "project-new-task-button")
 
     def test_widget_traversal_and_scripted_footer_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -223,6 +224,11 @@ class UiTests(unittest.TestCase):
         self.assertIn('type:"project_request"', source)
         self.assertIn('type:"performance_state"', source)
         self.assertIn("IntersectionObserver", source)
+        self.assertIn("codex-companion-handoff:", source)
+        self.assertIn("maybeCaptureHandoff", source)
+        self.assertIn("__codexCompanionGitUpdate", source)
+        self.assertIn("navigator.clipboard.writeText", source)
+        self.assertNotIn('type:"handoff_content"', source)
         self.assertIn("shouldClampScroll", source)
         self.assertIn('focusState:"pending_boundary"', source)
         self.assertIn('scroller.style.overflowAnchor="none"', source)
