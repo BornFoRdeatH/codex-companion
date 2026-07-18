@@ -62,6 +62,7 @@ class UiHost:
         self.restart_existing = restart_existing
         self.stop = False
         self._last_heartbeat = 0.0
+        self.runtime_compatibility = "unknown"
         signal.signal(signal.SIGINT, lambda *_: setattr(self, "stop", True))
         if hasattr(signal, "SIGTERM"):
             signal.signal(signal.SIGTERM, lambda *_: setattr(self, "stop", True))
@@ -78,9 +79,11 @@ class UiHost:
             self._write_status(state="error", error=str(exc))
             return 2
         fp = fingerprint(executable)
-        adapter = match_adapter(fp, load_adapters(self.plugin_root))
+        adapters = load_adapters(self.plugin_root)
+        adapter = match_adapter(fp, adapters)
         policy = self.config.get("ui.unknown_version_policy", "dock_only")
         supported = adapter is not None
+        self.runtime_compatibility = "exact" if supported else "probing"
         if not supported and policy == "disable":
             self._write_status(state="unsupported", pid=process.pid, port=port, fingerprint=fp)
             return 3
@@ -99,7 +102,7 @@ class UiHost:
                     if connection:
                         connection.close()
                     connection = CdpConnection(str(target["webSocketDebuggerUrl"]))
-                    self._attach(connection, runtime, supported, adapter)
+                    self._attach(connection, runtime, supported, adapter, adapters)
                     last_target = target_id
                     self._write_status(state="attached", pid=process.pid, port=port, fingerprint=fp, adapter=adapter)
                 self._drain_events(connection)
@@ -128,16 +131,25 @@ class UiHost:
         self._write_status(state="stopped", exit_code=process.poll(), fingerprint=fp)
         return int(process.poll() or 0)
 
-    def _attach(self, connection: CdpConnection, runtime: str, supported: bool, adapter: dict[str, Any] | None) -> None:
+    def _attach(
+        self,
+        connection: CdpConnection,
+        runtime: str,
+        supported: bool,
+        adapter: dict[str, Any] | None,
+        adapters: list[dict[str, Any]],
+    ) -> None:
         connection.call("Page.enable")
         connection.call("Runtime.enable")
         connection.call("Runtime.addBinding", {"name": BINDING})
-        boot = self._boot_payload(supported, adapter)
+        boot = self._boot_payload(supported, adapter, adapters)
         source = f"window.__CODEX_USAGE_BOOT__={json.dumps(boot, separators=(',', ':'))};\n{runtime}"
         connection.call("Page.addScriptToEvaluateOnNewDocument", {"source": source})
         connection.call("Runtime.evaluate", {"expression": source, "awaitPromise": False})
 
-    def _boot_payload(self, supported: bool, adapter: dict[str, Any] | None) -> dict[str, Any]:
+    def _boot_payload(
+        self, supported: bool, adapter: dict[str, Any] | None, adapters: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         widgets = load_widgets(
             list(self.config.get("ui.widgets.directories", [])), bool(self.config.get("ui.security.scripts_enabled", True))
         )
@@ -151,12 +163,18 @@ class UiHost:
                 widget["source"] = markdown_to_html(widget["source"])
         return {
             "supported": supported,
+            "probeUnknown": not supported and self.config.get("ui.unknown_version_policy", "dock_only") == "dock_only",
+            "probeItemTypes": sorted({
+                str(item_type)
+                for known in adapters
+                for item_type in known.get("fiber_item_types", [])
+            }),
             "adapter": adapter or {},
             "dockPosition": self.config.get("ui.dock_position", "right_dock"),
             "dockSize": self.config.get("ui.dock_size", 340),
             "layoutMode": self.config.get("ui.layout_mode", "reserve_space"),
             "footerPhases": self.config.get("ui.footer_phases", ["commentary", "final_answer"]),
-            "locale": self.config.get("locale.language", "uk"),
+            "locale": "auto" if self.config.get("ui.auto_locale", True) else self.config.get("locale.language", "en"),
             "widgets": widgets,
             "security": self.config.get("ui.security", {}),
         }
@@ -190,6 +208,10 @@ class UiHost:
                     bool(message.get("completed")),
                     self._summary_payload(message.get("turnId")),
                 )
+            elif message.get("type") == "compatibility" and message.get("compatible") is True:
+                self.runtime_compatibility = str(message.get("evidence") or "structural")
+            elif message.get("type") == "compatibility" and message.get("compatible") is False:
+                self.runtime_compatibility = str(message.get("evidence") or "incompatible")
 
     def _summary_payload(self, turn_id: str | None) -> dict[str, Any]:
         summary = self.storage.summary(None, turn_id)
@@ -200,6 +222,7 @@ class UiHost:
         self.plugin_data.mkdir(parents=True, exist_ok=True)
         value["updated_at"] = time.time()
         value["host_pid"] = os.getpid()
+        value.setdefault("runtime_compatibility", self.runtime_compatibility)
         temp = self.plugin_data / "ui-status.json.tmp"
         temp.write_text(json.dumps(value, indent=2), encoding="utf-8")
         temp.replace(self.plugin_data / "ui-status.json")

@@ -53,7 +53,7 @@ class UiTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="usage monitor ") as directory:
             root = Path(directory)
             family = root / "cache"
-            script = family / "0.2.8" / "scripts" / "usage_monitor.py"
+            script = family / "0.2.9" / "scripts" / "usage_monitor.py"
             script.parent.mkdir(parents=True)
             script.write_text("import sys; print('|'.join(sys.argv[1:]))", encoding="utf-8")
             bootstrap = root / "launcher.py"
@@ -160,8 +160,23 @@ class UiTests(unittest.TestCase):
         self.assertIn("quota_primary_delta", source)
         self.assertIn("const appShell=", source)
         self.assertIn("completionFromProps", source)
+        self.assertIn("detectTitlebarHeight", source)
+        self.assertIn("attachShadow({mode:\"open\"})", source)
+        self.assertIn("probeUnknown", source)
+        self.assertIn("repeated_missing_identity_contract", source)
+        self.assertIn('startsWith("uk")?"uk":"en"', source)
+        self.assertNotIn('<div id="footers">', source)
+        self.assertNotIn("const rect=anchor.element.getBoundingClientRect()", source)
+        self.assertNotIn('startsWith("ru")', source)
         self.assertNotIn("5h used", source)
         self.assertNotIn("backdrop-filter", source)
+
+    def test_builtin_widget_uses_localized_placeholders(self) -> None:
+        source = (
+            Path(__file__).resolve().parents[1] / "ui" / "widgets" / "usage-summary" / "widget.html"
+        ).read_text(encoding="utf-8")
+        self.assertIn("{ui.live_telemetry}", source)
+        self.assertIn("{ui.protected_surface}", source)
 
 
 if __name__ == "__main__":

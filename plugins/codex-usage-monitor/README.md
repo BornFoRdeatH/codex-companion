@@ -1,4 +1,4 @@
-# Codex Usage Monitor 0.2.8
+# Codex Usage Monitor 0.2.9
 
 Local Codex token, context, quota, operation, subagent, and account telemetry. Version 0.2 adds an
 optional runtime UI: a persistent resizable dock plus compact telemetry footers below commentary
@@ -50,22 +50,29 @@ This preserves Windows interpreter paths containing spaces, including
 
 ## Compatibility behavior
 
-Footer mounting is enabled only when both the installed package version and `app.asar` SHA-256
-match an entry in `ui/adapters.json`. The included adapters support Windows Codex
-`26.707.12708.0` and `26.715.3651.0`. An unknown or updated build gets a compatibility notice and a persistent dock,
-but no heuristic message selectors or footers. Run `ui adapters` to inspect the live fingerprint.
+An exact package version plus `app.asar` SHA-256 match in `ui/adapters.json` enables footers
+immediately. The included adapters support Windows Codex `26.707.12708.0` and `26.715.3651.0`.
+For an unknown build, the dock starts in a non-blocking probing state. It enables footers only
+after finding a known item contract once or the same privacy-safe structural contract on multiple
+items; absence of an allowlisted fingerprint alone is no longer treated as incompatibility.
+The probe reads only item/thread/turn identifiers, phase and completion state. Run `ui adapters`
+to inspect the exact fingerprint registry.
 
 The dock can be resized, collapsed, and moved among right, bottom, left, and floating placements.
 By default `layout_mode = "reserve_space"` shrinks both the Codex `#root` viewport and its
 viewport-sized application shell so docked panels do not cover the native right sidebar,
 navigation, composer, or message content. Set `layout_mode = "overlay"` for the old
 overlay behavior; `floating` is always an overlay.
+On Electron builds the dock detects the top `-webkit-app-region: drag` titlebar and starts below
+it, leaving native minimize, maximize and close controls unobstructed.
 Its layout is stored in renderer-local state. Completed-message snapshots are stored in the
 plugin SQLite database by `thread_id + item_id`; message text is never read or stored.
 
 The native-style footer distinguishes current context from cumulative task usage. It shows the
 latest model call, cumulative task tokens (`Σ`), estimated context remaining, rate-limit remaining,
-estimated quota delta for the current request (`≈`), and observed execution time. Rate-window
+estimated quota delta for the current request (`≈`), and observed execution time. Each footer is
+an inline Shadow DOM child of its message container, so scrolling and virtualization move it as
+part of the native layout rather than through a delayed fixed-position overlay. Rate-window
 labels come from `window_minutes`; a seven-day snapshot is never labeled as a five-hour window.
 The dock exposes the token breakdown, context window, cache hit, reset countdown, tools,
 compactions, subagents, account fields when available, and data provenance.
@@ -73,6 +80,12 @@ compactions, subagents, account fields when available, and data provenance.
 The UI host sends live snapshots at `ui.refresh_interval_ms`, writes a five-second heartbeat to
 `ui-status.json`, and reconnects after transient CDP or SQLite errors. Diagnostics are retained in
 `ui-host-error.log`; prompt, response, and tool contents are never written there.
+
+### Localization
+
+`ui.auto_locale = true` follows the Codex/OS browser locale. Ukrainian (`uk`) and English (`en`)
+are the only UI dictionaries. Every other locale, including Russian, falls back to English.
+Set `auto_locale = false` and `locale.language = "uk"` or `"en"` for an explicit override.
 
 ## Widgets
 

@@ -72,6 +72,9 @@ def _validate(data: dict[str, Any]) -> list[str]:
     if data["ui"]["unknown_version_policy"] not in {"dock_only", "disable"}:
         warnings.append("Invalid ui.unknown_version_policy; using dock_only")
         data["ui"]["unknown_version_policy"] = "dock_only"
+    if data["locale"]["language"] not in {"uk", "en"}:
+        warnings.append("Invalid locale.language; using en (supported: uk, en)")
+        data["locale"]["language"] = "en"
     if data["ui"]["refresh_interval_ms"] < 100:
         warnings.append("ui.refresh_interval_ms must be at least 100; using 200")
         data["ui"]["refresh_interval_ms"] = 200

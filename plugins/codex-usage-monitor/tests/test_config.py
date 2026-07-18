@@ -34,6 +34,7 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(loaded.get("schema_version"), 1)
             self.assertTrue(loaded.path.exists())
             self.assertTrue(loaded.get("privacy.never_store_prompt_contents"))
+            self.assertTrue(loaded.get("ui.auto_locale"))
 
     def test_unknown_key_warns_and_privacy_is_forced(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -63,6 +64,16 @@ class ConfigTests(unittest.TestCase):
             loaded = load_config(PLUGIN_ROOT, path)
             self.assertEqual(loaded.get("ui.layout_mode"), "reserve_space")
             self.assertTrue(any("ui.layout_mode" in item for item in loaded.warnings))
+
+    def test_locale_supports_only_ukrainian_and_english(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            (path / "config.toml").write_text(
+                'schema_version=1\n[locale]\nlanguage="ru"\n', encoding="utf-8"
+            )
+            loaded = load_config(PLUGIN_ROOT, path)
+            self.assertEqual(loaded.get("locale.language"), "en")
+            self.assertTrue(any("locale.language" in item for item in loaded.warnings))
 
 
 if __name__ == "__main__":
