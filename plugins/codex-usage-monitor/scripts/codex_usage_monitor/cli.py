@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
 import os
 import platform
 import shutil
 import sqlite3
 import sys
+import time
 from pathlib import Path
 
 from .collector import ensure_collector, find_codex_executable
@@ -46,6 +49,10 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("validate-config")
     export = sub.add_parser("export-summary")
     export.add_argument("--session-id")
+    history = sub.add_parser("export-history")
+    history.add_argument("--session-id")
+    history.add_argument("--since", default="7d")
+    history.add_argument("--format", choices=("json", "csv"), default="json")
     reset = sub.add_parser("reset-cache")
     reset.add_argument("--yes", action="store_true")
     ui = sub.add_parser("ui")
@@ -114,6 +121,19 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "export-summary":
             print(json.dumps(storage.summary(args.session_id, None), indent=2, ensure_ascii=False, default=str))
             return 0
+        if args.command == "export-history":
+            rows = storage.history(args.session_id, _since_timestamp(args.since),
+                                   "current_chat" if args.session_id else "all_chats", 5000)
+            if args.format == "json":
+                print(json.dumps(rows, indent=2, ensure_ascii=False, default=str))
+            else:
+                output = io.StringIO(newline="")
+                fields = list(rows[0]) if rows else ["turn_id", "session_id", "started_at", "ended_at"]
+                writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
+                writer.writeheader()
+                writer.writerows(rows)
+                print(output.getvalue(), end="")
+            return 0
         if args.command == "doctor":
             details = {
                 "plugin_root": str(plugin_root),
@@ -145,3 +165,17 @@ def main(argv: list[str] | None = None) -> int:
         except sqlite3.ProgrammingError:
             pass
     return 2
+
+
+def _since_timestamp(value: str) -> float | None:
+    if value == "all":
+        return None
+    unit = value[-1:].lower()
+    try:
+        amount = float(value[:-1])
+    except (TypeError, ValueError):
+        raise SystemExit("--since must be 24h, 7d, 30d, all, or another positive duration")
+    seconds = {"h": 3600, "d": 86400}.get(unit)
+    if not seconds or amount < 0:
+        raise SystemExit("--since must use h or d")
+    return time.time() - amount * seconds

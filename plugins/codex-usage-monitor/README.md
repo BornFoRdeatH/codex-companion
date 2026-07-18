@@ -1,4 +1,4 @@
-# Codex Usage Monitor 0.2.11
+# Codex Usage Monitor 0.3.0
 
 Local Codex token, context, quota, operation, subagent, and account telemetry. Version 0.2 adds an
 optional runtime UI: a persistent resizable dock plus compact telemetry footers below commentary
@@ -103,6 +103,18 @@ The built-in **Usage Summary** widget is live: it shows current request tokens, 
 the longest available rate-window remainder, and its update time. It is no longer a static
 "Live telemetry" placeholder.
 
+### Usage Guard and History
+
+Usage Guard activates the existing used-percent thresholds for account quota, current context,
+slow/expensive turns, and low cache hit. Its composer badge and dock banner are locally dismissible
+with a 15-minute per-condition cooldown. Estimated context is marked `≈` and cannot create a critical
+alert; critical context requires official or renderer-observed data.
+
+The chart button opens localized **Usage History**. It defaults to the current chat over seven days,
+with current/all-chat scopes and 24h/7d/30d/all ranges. History is loaded only when requested over the
+CDP binding and rendered as dependency-free SVG. Labels contain only timestamp, model, and a short
+session ID; chat titles and message contents are never read.
+
 The UI host sends live snapshots at `ui.refresh_interval_ms`, writes a five-second heartbeat to
 `ui-status.json`, and reconnects after transient CDP or SQLite errors. Diagnostics are retained in
 `ui-host-error.log`; prompt, response, and tool contents are never written there.
@@ -165,8 +177,8 @@ transcript, and read/write SQLite snapshots. Failed App Server starts use a five
 
 On first use, `config.default.toml` is copied to `%PLUGIN_DATA%/config.toml`. When the CLI is run
 outside a hook, it resolves the active marketplace data directory under `~/.codex/plugins/data`.
-Version 0.2 keeps
-`schema_version = 1` and adds `[ui]`, `[ui.widgets]`, and `[ui.security]`. Existing configs inherit
+Version 0.3 keeps public config `schema_version = 1`, uses internal SQLite schema v2, and adds
+`[ui.guard]` and `[ui.history]`. Existing configs inherit
 new defaults. Unknown keys warn and invalid values fall back safely.
 
 The privacy invariants `never_store_auth_tokens`, `never_store_prompt_contents`,
@@ -181,6 +193,7 @@ scripts\usage-monitor.cmd doctor
 scripts\usage-monitor.cmd config-path
 scripts\usage-monitor.cmd validate-config
 scripts\usage-monitor.cmd export-summary
+scripts\usage-monitor.cmd export-history --session-id <id> --since 7d --format json
 scripts\usage-monitor.cmd reset-cache --yes
 scripts\usage-monitor.cmd ui install
 scripts\usage-monitor.cmd ui launch

@@ -182,13 +182,19 @@ class UiHost:
             "locale": "auto" if self.config.get("ui.auto_locale", True) else self.config.get("locale.language", "en"),
             "widgets": widgets,
             "security": self.config.get("ui.security", {}),
+            "guard": self.config.get("ui.guard", {}),
+            "historyConfig": self.config.get("ui.history", {}),
         }
 
     def _push_snapshot(self, connection: CdpConnection) -> None:
+        if self.active_thread_id:
+            self.active_session_state = "available" if self.storage.has_session(self.active_thread_id) else "pending"
         snapshot = self._summary_payload(None, self.active_thread_id)
         turn = snapshot.get("turn") or {}
         if turn.get("turn_id") and turn.get("ended_at"):
             self.storage.refresh_completed_turn_snapshots(str(turn["turn_id"]), snapshot)
+            context = (snapshot.get("view") or {}).get("context") or {}
+            self.storage.materialize_turn(str(turn["turn_id"]), context.get("used_percent"), context.get("source"))
         history = self.storage.message_snapshots(self.active_thread_id, limit=500) if self.active_thread_id else []
         payload = {"snapshot": snapshot, "history": history, "at": time.time(), "activeThreadId": self.active_thread_id}
         expression = f"window.__codexUsageUpdate&&window.__codexUsageUpdate({json.dumps(payload, separators=(',', ':'))})"
@@ -205,10 +211,12 @@ class UiHost:
                 message = json.loads(params.get("payload", "{}"))
             except json.JSONDecodeError:
                 continue
-            if message.get("type") == "active_thread":
+            if message.get("type") == "history_request":
+                self._respond_history(connection, message)
+            elif message.get("type") == "active_thread":
                 raw_id = message.get("threadId")
                 thread_id = str(raw_id)[:128] if raw_id and not str(raw_id).startswith("client-new-thread:") else None
-                if thread_id != self.active_thread_id or message.get("state") != self.active_session_state:
+                if thread_id != self.active_thread_id:
                     self.active_thread_id = thread_id
                     self.active_session_state = "available" if thread_id and self.storage.has_session(thread_id) else "pending"
                     self.active_thread_switched_at = time.time()
@@ -236,6 +244,22 @@ class UiHost:
                 self.runtime_compatibility = str(message.get("evidence") or "structural")
             elif message.get("type") == "compatibility" and message.get("compatible") is False:
                 self.runtime_compatibility = str(message.get("evidence") or "incompatible")
+
+    def _respond_history(self, connection: CdpConnection, message: dict[str, Any]) -> None:
+        request_id = str(message.get("requestId") or "")[:80]
+        scope = str(message.get("scope") or self.config.get("ui.history.default_scope", "current_chat"))
+        range_name = str(message.get("range") or self.config.get("ui.history.default_range", "7d"))
+        seconds = {"24h": 86400, "7d": 7*86400, "30d": 30*86400, "all": None}.get(range_name, 7*86400)
+        since = time.time()-seconds if seconds else None
+        try:
+            rows = self.storage.history(self.active_thread_id, since, scope,
+                                        int(self.config.get("ui.history.max_turns", 500)))
+            payload = {"requestId": request_id, "scope": scope, "range": range_name, "turns": rows,
+                       "activeThreadId": self.active_thread_id}
+        except (ValueError, sqlite3.Error) as exc:
+            payload = {"requestId": request_id, "error": str(exc), "turns": []}
+        expression = f"window.__codexUsageHistoryUpdate&&window.__codexUsageHistoryUpdate({json.dumps(payload, separators=(',', ':'))})"
+        connection.call("Runtime.evaluate", {"expression": expression, "returnByValue": False}, timeout=1.0)
 
     def _summary_payload(self, turn_id: str | None, session_id: str | None = None) -> dict[str, Any]:
         summary = self.storage.summary(session_id, turn_id)

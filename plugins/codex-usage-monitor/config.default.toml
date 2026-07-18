@@ -271,6 +271,17 @@ refresh_interval_ms = 200
 unknown_version_policy = "dock_only"
 suppress_hook_system_messages = true
 
+[ui.guard]
+enabled = true
+cooldown_minutes = 15
+allow_estimated_alerts = false
+
+[ui.history]
+enabled = true
+default_scope = "current_chat"
+default_range = "7d"
+max_turns = 500
+
 [ui.widgets]
 directories = ["${PLUGIN_ROOT}/ui/widgets", "${PLUGIN_DATA}/ui/widgets"]
 ordering = []

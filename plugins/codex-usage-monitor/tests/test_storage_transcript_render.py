@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from codex_usage_monitor.config import load_config
-from codex_usage_monitor.render import _delta, derive, progress, render, render_template
+from codex_usage_monitor.render import _delta, _guard, derive, progress, render, render_template
 from codex_usage_monitor.storage import Storage
 from codex_usage_monitor.transcript import TranscriptParser
 
@@ -138,6 +138,41 @@ class StorageTranscriptRenderTests(unittest.TestCase):
     def test_quota_delta_is_unavailable_across_a_reset(self) -> None:
         self.assertEqual(_delta({"used_percent": 24}, 23), 1)
         self.assertIsNone(_delta({"used_percent": 2}, 99))
+
+    def test_schema_v2_history_is_session_scoped_and_privacy_safe(self) -> None:
+        for session in ("one", "two"):
+            self.storage.upsert_session(session, None, "gpt-test", None)
+            self.storage.start_turn(f"{session}-turn", session)
+            self.storage.add_tokens(
+                session, f"{session}-turn",
+                {"total": {"input_tokens": 80, "cached_input_tokens": 40, "output_tokens": 20, "total_tokens": 100},
+                 "last": {"input_tokens": 80, "cached_input_tokens": 40, "output_tokens": 20, "total_tokens": 100},
+                 "model_context_window": 1000}, time.time(), "test")
+            self.storage.end_turn(f"{session}-turn")
+        self.assertEqual(self.storage.get_meta("schema_version"), "2")
+        current = self.storage.history("one", None, "current_chat", 500)
+        self.assertEqual([row["session_id"] for row in current], ["one"])
+        self.assertEqual(len(self.storage.history(None, None, "all_chats", 500)), 2)
+        self.assertEqual(self.storage.history(None, time.time() + 1, "all_chats", 500), [])
+        self.assertFalse({"prompt", "assistant_text", "title"} & set(current[0]))
+
+    def test_rolling_forecast_requires_samples_and_ignores_reset_drop(self) -> None:
+        now = time.time()
+        for offset, used in ((-900, 10), (-700, 12), (-500, 14), (-400, 1), (-200, 2), (0, 3)):
+            self.storage.add_rate_limits(
+                {"rateLimits": {"limitId": "codex", "primary": {"usedPercent": used, "windowDurationMins": 300}}},
+                now + offset, "official_app_server")
+        forecast = self.storage.rolling_forecast()
+        self.assertIn("15", forecast["windows"])
+        self.assertGreaterEqual(forecast["windows"]["15"]["burn_percent_per_hour"], 0)
+
+    def test_estimated_context_cannot_create_critical_guard_alert(self) -> None:
+        view = {"primary": {}, "context": {"used_percent": 99, "source": "estimated"},
+                "turn": {"duration": 0, "total": 1, "input": 1, "cached": 1}, "thread": {}}
+        self.assertFalse(any(a["condition"] == "context" for a in _guard(view, self.config)["alerts"]))
+        view["context"]["source"] = "observed_renderer"
+        alert = next(a for a in _guard(view, self.config)["alerts"] if a["condition"] == "context")
+        self.assertEqual(alert["level"], "critical")
 
 
 if __name__ == "__main__":

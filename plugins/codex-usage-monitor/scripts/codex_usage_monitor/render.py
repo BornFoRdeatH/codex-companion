@@ -104,7 +104,7 @@ def derive(summary: dict[str, Any], config: LoadedConfig) -> dict[str, Any]:
     today = _bucket_sum(daily, 1)
     seven = _bucket_sum(daily, 7)
     thirty = _bucket_sum(daily, 30)
-    return {
+    result = {
         "model": config.get("_runtime.model", ""),
         "primary": _rate_view(primary, now, timezone_name, date_fmt, config),
         "secondary": _rate_view(secondary, now, timezone_name, date_fmt, config),
@@ -159,8 +159,55 @@ def derive(summary: dict[str, Any], config: LoadedConfig) -> dict[str, Any]:
             "remaining_turns": remaining_turns,
             "average_tokens_per_turn": average_turn,
             "confidence": "low" if exhaustion is not None else None,
+            "rolling": summary.get("rolling_forecast") or {"windows": {}, "remaining_turns": None},
         },
     }
+    rolling = result["forecast"]["rolling"]
+    preferred = (rolling.get("windows") or {}).get("60") or (rolling.get("windows") or {}).get("15")
+    if preferred:
+        result["forecast"].update({"burn_per_hour": preferred.get("burn_percent_per_hour"),
+                                   "exhaustion_hours": preferred.get("projected_exhaustion_hours"),
+                                   "confidence": preferred.get("confidence")})
+    if rolling.get("remaining_turns") is not None:
+        result["forecast"]["remaining_turns"] = rolling["remaining_turns"]
+    result["guard"] = _guard(result, config)
+    return result
+
+
+def _guard(view: dict[str, Any], config: LoadedConfig) -> dict[str, Any]:
+    if not config.get("ui.guard.enabled", True):
+        return {"alerts": [], "highest": None}
+    alerts: list[dict[str, Any]] = []
+    thresholds = config.get("thresholds", {})
+    def add(condition: str, used: float | None, warning: float, critical: float | None,
+            provenance: str, global_value: bool = False) -> None:
+        if used is None:
+            return
+        level = "critical" if critical is not None and used >= critical else "warning" if used >= warning else None
+        if level:
+            alerts.append({"condition": condition, "level": level, "value": used, "provenance": provenance,
+                           "estimated": provenance == "estimated", "global": global_value})
+    primary = view.get("primary") or {}
+    add("quota", primary.get("used_percent"), float(thresholds.get("quota_warning_percent", 70)),
+        float(thresholds.get("quota_critical_percent", 90)), str(primary.get("source") or "official"), True)
+    context = view.get("context") or {}
+    source = str(context.get("source") or "unavailable")
+    allow_estimated = bool(config.get("ui.guard.allow_estimated_alerts", False))
+    if source != "estimated" or allow_estimated:
+        critical = float(thresholds.get("context_critical_percent", 90)) if source in {"official", "observed_renderer"} else None
+        add("context", context.get("used_percent"), float(thresholds.get("context_warning_percent", 70)), critical, source)
+    turn = view.get("turn") or {}
+    if turn.get("duration") is not None and turn["duration"] >= float(thresholds.get("slow_turn_seconds", 120)):
+        alerts.append({"condition": "slow_turn", "level": "warning", "value": turn["duration"], "provenance": "observed", "estimated": False, "global": False})
+    if turn.get("total") is not None and turn["total"] >= float(thresholds.get("expensive_turn_tokens", 100000)):
+        alerts.append({"condition": "expensive_turn", "level": "warning", "value": turn["total"], "provenance": "observed", "estimated": False, "global": False})
+    turn_input, turn_cached = turn.get("input"), turn.get("cached")
+    hit = (100.0 * float(turn_cached) / float(turn_input)) if turn_input else None
+    if hit is not None and hit < float(thresholds.get("low_cache_hit_percent", 50)):
+        alerts.append({"condition": "low_cache_hit", "level": "info", "value": hit, "provenance": "observed", "estimated": False, "global": False})
+    order = {"info": 1, "warning": 2, "critical": 3}
+    highest = max((alert["level"] for alert in alerts), key=lambda value: order[value], default=None)
+    return {"alerts": alerts, "highest": highest}
 
 
 def render(summary: dict[str, Any], config: LoadedConfig, profile: str) -> str:

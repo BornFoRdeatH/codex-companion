@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import statistics
 import time
 from pathlib import Path
 from typing import Any
@@ -127,6 +128,27 @@ CREATE TABLE IF NOT EXISTS ui_message_snapshots (
     PRIMARY KEY(thread_id,item_id)
 );
 CREATE INDEX IF NOT EXISTS ui_message_time ON ui_message_snapshots(observed_at);
+CREATE TABLE IF NOT EXISTS turn_aggregates (
+    turn_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    started_at REAL NOT NULL,
+    ended_at REAL NOT NULL,
+    model TEXT,
+    total_tokens INTEGER,
+    input_tokens INTEGER,
+    cached_input_tokens INTEGER,
+    output_tokens INTEGER,
+    reasoning_tokens INTEGER,
+    duration_seconds REAL,
+    tool_seconds REAL,
+    ending_context_percent REAL,
+    context_source TEXT,
+    primary_quota_delta REAL,
+    secondary_quota_delta REAL,
+    materialized_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS aggregate_session_time ON turn_aggregates(session_id, ended_at);
+CREATE INDEX IF NOT EXISTS aggregate_time ON turn_aggregates(ended_at);
 """
 
 
@@ -148,7 +170,8 @@ class Storage:
             self.conn.execute("DELETE FROM ui_message_snapshots WHERE thread_id='/index.html'")
             self.set_meta("removed_legacy_index_snapshots", "1")
         self.conn.commit()
-        self.set_meta("schema_version", "1")
+        self.set_meta("schema_version", "2")
+        self.materialize_completed_turns()
 
     def _ensure_column(self, table: str, column: str, declaration: str) -> None:
         columns = {row["name"] for row in self.conn.execute(f"PRAGMA table_info({table})")}
@@ -225,6 +248,7 @@ class Storage:
     def end_turn(self, turn_id: str) -> None:
         self.conn.execute("UPDATE turns SET ended_at=COALESCE(ended_at,?) WHERE turn_id=?", (time.time(), turn_id))
         self.conn.commit()
+        self.materialize_turn(turn_id)
 
     def active_turn(self, session_id: str) -> sqlite3.Row | None:
         return self.conn.execute(
@@ -463,6 +487,125 @@ class Storage:
             result.append(value)
         return result
 
+    def materialize_completed_turns(self) -> int:
+        rows = self.conn.execute(
+            "SELECT turn_id FROM turns WHERE ended_at IS NOT NULL AND turn_id NOT IN (SELECT turn_id FROM turn_aggregates)"
+        ).fetchall()
+        for row in rows:
+            self.materialize_turn(str(row["turn_id"]), commit=False)
+        self.conn.commit()
+        return len(rows)
+
+    def materialize_turn(
+        self, turn_id: str, ending_context_percent: float | None = None,
+        context_source: str | None = None, commit: bool = True,
+    ) -> None:
+        turn = self.conn.execute("SELECT * FROM turns WHERE turn_id=? AND ended_at IS NOT NULL", (turn_id,)).fetchone()
+        if not turn:
+            return
+        token = self.conn.execute(
+            "SELECT * FROM token_snapshots WHERE turn_id=? ORDER BY observed_at DESC,id DESC LIMIT 1", (turn_id,)
+        ).fetchone()
+        if not token:
+            token = self.conn.execute(
+                "SELECT * FROM token_snapshots WHERE session_id=? AND observed_at<=? ORDER BY observed_at DESC,id DESC LIMIT 1",
+                (turn["session_id"], float(turn["ended_at"]) + 10.0),
+            ).fetchone()
+        def delta(column: str, baseline: str) -> int | None:
+            return max(0, int(token[column]) - int(turn[baseline] or 0)) if token else None
+        if ending_context_percent is None and token and token["model_context_window"]:
+            ending_context_percent = 100.0 * int(token["last_input_tokens"] or 0) / int(token["model_context_window"])
+            context_source = context_source or "estimated"
+        rates = self.rates_at(float(turn["ended_at"]) + 10.0)
+        primary = next((v for k, v in rates.items() if k[1] == "primary"), None)
+        secondary = next((v for k, v in rates.items() if k[1] == "secondary"), None)
+        def quota(rate: sqlite3.Row | None, baseline: Any) -> float | None:
+            if not rate or rate["used_percent"] is None or baseline is None:
+                return None
+            value = float(rate["used_percent"]) - float(baseline)
+            return value if value >= 0 else None
+        tools = self.conn.execute(
+            "SELECT COALESCE(SUM(CASE WHEN ended_at IS NOT NULL THEN ended_at-started_at ELSE 0 END),0) seconds FROM tool_calls WHERE turn_id=?",
+            (turn_id,),
+        ).fetchone()
+        session = self.conn.execute("SELECT model FROM sessions WHERE session_id=?", (turn["session_id"],)).fetchone()
+        self.conn.execute(
+            """INSERT INTO turn_aggregates(turn_id,session_id,started_at,ended_at,model,total_tokens,input_tokens,
+               cached_input_tokens,output_tokens,reasoning_tokens,duration_seconds,tool_seconds,ending_context_percent,
+               context_source,primary_quota_delta,secondary_quota_delta,materialized_at)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+               ON CONFLICT(turn_id) DO UPDATE SET model=excluded.model,total_tokens=excluded.total_tokens,
+               input_tokens=excluded.input_tokens,cached_input_tokens=excluded.cached_input_tokens,
+               output_tokens=excluded.output_tokens,reasoning_tokens=excluded.reasoning_tokens,
+               duration_seconds=excluded.duration_seconds,tool_seconds=excluded.tool_seconds,
+               ending_context_percent=COALESCE(excluded.ending_context_percent,turn_aggregates.ending_context_percent),
+               context_source=COALESCE(excluded.context_source,turn_aggregates.context_source),
+               primary_quota_delta=excluded.primary_quota_delta,secondary_quota_delta=excluded.secondary_quota_delta,
+               materialized_at=excluded.materialized_at""",
+            (turn_id, turn["session_id"], turn["started_at"], turn["ended_at"], session["model"] if session else None,
+             delta("total_tokens", "baseline_total"), delta("input_tokens", "baseline_input"),
+             delta("cached_input_tokens", "baseline_cached"), delta("output_tokens", "baseline_output"),
+             delta("reasoning_output_tokens", "baseline_reasoning"), float(turn["ended_at"])-float(turn["started_at"]),
+             float(tools["seconds"] or 0), ending_context_percent, context_source,
+             quota(primary, turn["baseline_primary_percent"]), quota(secondary, turn["baseline_secondary_percent"]), time.time()),
+        )
+        if commit:
+            self.conn.commit()
+
+    def history(self, session_id: str | None, since: float | None, scope: str = "current_chat", limit: int = 500) -> list[dict[str, Any]]:
+        self.materialize_completed_turns()
+        where, params = ["ended_at>=?"], [float(since or 0)]
+        if scope == "current_chat":
+            if not session_id:
+                return []
+            where.append("session_id=?")
+            params.append(session_id)
+        elif scope != "all_chats":
+            raise ValueError("scope must be current_chat or all_chats")
+        rows = self.conn.execute(
+            f"SELECT * FROM turn_aggregates WHERE {' AND '.join(where)} ORDER BY ended_at DESC LIMIT ?",
+            (*params, max(1, min(int(limit), 5000))),
+        ).fetchall()
+        result = []
+        for row in reversed(rows):
+            value = dict(row)
+            value["session_label"] = f"{time.strftime('%Y-%m-%d %H:%M', time.localtime(value['started_at']))} · {value.get('model') or '—'} · {value['session_id'][:8]}"
+            result.append(value)
+        return result
+
+    def rolling_forecast(self) -> dict[str, Any]:
+        latest = self.latest_rates()
+        primary = next((v for k, v in latest.items() if k[1] == "primary" and v["used_percent"] is not None), None)
+        if not primary:
+            return {"windows": {}, "remaining_turns": None}
+        now = time.time()
+        rows = self.conn.execute(
+            """SELECT observed_at,used_percent,resets_at FROM rate_limit_snapshots
+               WHERE limit_id=? AND window_kind=? AND used_percent IS NOT NULL AND observed_at>=?
+               ORDER BY observed_at""",
+            (primary["limit_id"], primary["window_kind"], now-3600),
+        ).fetchall()
+        windows: dict[str, Any] = {}
+        for minutes in (15, 60):
+            sample = [r for r in rows if float(r["observed_at"]) >= now-minutes*60]
+            segment: list[sqlite3.Row] = []
+            for row in sample:
+                if segment and float(row["used_percent"]) < float(segment[-1]["used_percent"]):
+                    segment = []
+                segment.append(row)
+            span = float(segment[-1]["observed_at"])-float(segment[0]["observed_at"]) if len(segment)>1 else 0
+            if len(segment) >= 3 and span >= 300:
+                slope = max(0.0, (float(segment[-1]["used_percent"])-float(segment[0]["used_percent"])) / (span/3600))
+                windows[str(minutes)] = {"burn_percent_per_hour": slope, "samples": len(segment), "span_seconds": span,
+                    "projected_exhaustion_hours": (100-float(primary["used_percent"]))/slope if slope>0 else None,
+                    "confidence": "high" if len(segment)>=8 and span>=minutes*45 else "medium"}
+        deltas = [float(r[0]) for r in self.conn.execute(
+            "SELECT primary_quota_delta FROM turn_aggregates WHERE primary_quota_delta>0 ORDER BY ended_at DESC LIMIT 20"
+        ).fetchall()]
+        median = statistics.median(deltas) if deltas else None
+        return {"windows": windows, "remaining_turns": (100-float(primary["used_percent"]))/median if median else None,
+                "median_turn_quota_delta": median}
+
     def refresh_completed_turn_snapshots(self, turn_id: str, snapshot: dict[str, Any]) -> int:
         cursor = self.conn.execute(
             """UPDATE ui_message_snapshots SET observed_at=?,snapshot_json=?
@@ -532,6 +675,7 @@ class Storage:
             "tools": dict(tools) if tools else None,
             "compactions": dict(compactions) if compactions else {"count": 0, "last_time": None},
             "subagents": dict(subagents) if subagents else {"started": 0, "completed": 0, "active": 0},
+            "rolling_forecast": self.rolling_forecast(),
         }
 
     def reset(self) -> None:
@@ -543,6 +687,7 @@ class Storage:
         for table in ("token_snapshots", "rate_limit_snapshots", "account_usage_snapshots", "compactions", "hook_events", "ui_message_snapshots"):
             self.conn.execute(f"DELETE FROM {table} WHERE observed_at < ?", (cutoff,))
         self.conn.execute("DELETE FROM turns WHERE ended_at IS NOT NULL AND ended_at < ?", (cutoff,))
+        self.conn.execute("DELETE FROM turn_aggregates WHERE ended_at < ?", (cutoff,))
         self.conn.execute("DELETE FROM tool_calls WHERE ended_at IS NOT NULL AND ended_at < ?", (cutoff,))
         self.conn.execute("DELETE FROM subagents WHERE ended_at IS NOT NULL AND ended_at < ?", (cutoff,))
         self.conn.commit()

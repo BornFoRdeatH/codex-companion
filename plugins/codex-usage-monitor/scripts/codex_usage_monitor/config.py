@@ -81,6 +81,18 @@ def _validate(data: dict[str, Any]) -> list[str]:
     if data["ui"]["dock_size"] < 180:
         warnings.append("ui.dock_size must be at least 180; using 340")
         data["ui"]["dock_size"] = 340
+    if data["ui"]["guard"]["cooldown_minutes"] < 0:
+        warnings.append("ui.guard.cooldown_minutes must be non-negative; using 15")
+        data["ui"]["guard"]["cooldown_minutes"] = 15
+    if data["ui"]["history"]["default_scope"] not in {"current_chat", "all_chats"}:
+        warnings.append("Invalid ui.history.default_scope; using current_chat")
+        data["ui"]["history"]["default_scope"] = "current_chat"
+    if data["ui"]["history"]["default_range"] not in {"24h", "7d", "30d", "all"}:
+        warnings.append("Invalid ui.history.default_range; using 7d")
+        data["ui"]["history"]["default_range"] = "7d"
+    if data["ui"]["history"]["max_turns"] < 1:
+        warnings.append("ui.history.max_turns must be positive; using 500")
+        data["ui"]["history"]["max_turns"] = 500
     for key in ("progress_bar_width", "max_width", "max_lines"):
         if data["display"][key] < 1:
             warnings.append(f"display.{key} must be positive; using default")

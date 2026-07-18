@@ -35,6 +35,10 @@ class ConfigTests(unittest.TestCase):
             self.assertTrue(loaded.path.exists())
             self.assertTrue(loaded.get("privacy.never_store_prompt_contents"))
             self.assertTrue(loaded.get("ui.auto_locale"))
+            self.assertTrue(loaded.get("ui.guard.enabled"))
+            self.assertEqual(loaded.get("ui.guard.cooldown_minutes"), 15)
+            self.assertEqual(loaded.get("ui.history.default_scope"), "current_chat")
+            self.assertEqual(loaded.get("ui.history.default_range"), "7d")
 
     def test_unknown_key_warns_and_privacy_is_forced(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

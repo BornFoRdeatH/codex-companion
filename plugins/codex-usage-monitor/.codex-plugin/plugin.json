@@ -1,7 +1,7 @@
 {
   "name": "codex-usage-monitor",
-  "version": "0.2.11",
-  "description": "Local Codex telemetry with a memory-only runtime dock and message footers.",
+  "version": "0.3.0",
+  "description": "Session-isolated Codex telemetry with Usage Guard, History, dock, and message footers.",
   "author": {
     "name": "Local"
   },
@@ -16,7 +16,7 @@
   "interface": {
     "displayName": "Codex Usage Monitor",
     "shortDescription": "Local token, quota, and context telemetry",
-    "longDescription": "Shows configurable Codex usage telemetry in a persistent runtime dock and verified message footers without adding monitor text to model context.",
+    "longDescription": "Shows session-isolated Codex usage telemetry, local alerts, privacy-safe history, and verified message footers without adding monitor text to model context.",
     "developerName": "Local",
     "category": "Productivity",
     "capabilities": [
