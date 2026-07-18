@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import signal
 import sqlite3
@@ -71,6 +72,8 @@ class UiHost:
         self.history_focus: dict[str, Any] = {
             "thread_id": None, "compatible": None, "total_turns": 0, "mounted_turns": 0,
             "window_start": None, "visible_window_turns": 0, "hidden_logical_turns": 0,
+            "focus_state": "pending_boundary", "boundary_turn": None, "boundary_scroll_top": None,
+            "scroll_direction": None, "guard_active": False,
         }
         signal.signal(signal.SIGINT, lambda *_: setattr(self, "stop", True))
         if hasattr(signal, "SIGTERM"):
@@ -266,12 +269,34 @@ class UiHost:
                     isinstance(window_start, (int, float)) and not isinstance(window_start, bool)
                     and 1 <= window_start <= 1_000_000
                 )
-                if thread_id == self.active_thread_id and isinstance(message.get("compatible"), bool) and valid_counts and valid_window:
+                focus_state = message.get("focus_state")
+                boundary_turn = message.get("boundary_turn")
+                boundary_scroll_top = message.get("boundary_scroll_top")
+                scroll_direction = message.get("scroll_direction")
+                guard_active = message.get("guard_active")
+                valid_focus = focus_state in {"disabled", "fail_open", "pending_boundary", "gate_only", "active", "complete"}
+                valid_boundary = boundary_turn is None or (
+                    isinstance(boundary_turn, (int, float)) and not isinstance(boundary_turn, bool)
+                    and 1 <= boundary_turn <= 1_000_000
+                )
+                valid_scroll = boundary_scroll_top is None or (
+                    isinstance(boundary_scroll_top, (int, float)) and not isinstance(boundary_scroll_top, bool)
+                    and math.isfinite(boundary_scroll_top) and abs(boundary_scroll_top) <= 1_000_000_000
+                )
+                valid_direction = scroll_direction is None or scroll_direction in {"normal", "column-reverse"}
+                if (thread_id == self.active_thread_id and isinstance(message.get("compatible"), bool)
+                        and valid_counts and valid_window and valid_focus and valid_boundary and valid_scroll
+                        and valid_direction and isinstance(guard_active, bool)):
                     self.history_focus = {
                         "thread_id": thread_id,
                         "compatible": message["compatible"],
                         **{key: int(value) for key, value in zip(keys, values)},
                         "window_start": int(window_start) if window_start is not None else None,
+                        "focus_state": focus_state,
+                        "boundary_turn": int(boundary_turn) if boundary_turn is not None else None,
+                        "boundary_scroll_top": float(boundary_scroll_top) if boundary_scroll_top is not None else None,
+                        "scroll_direction": scroll_direction,
+                        "guard_active": guard_active,
                     }
 
     def _respond_history(self, connection: CdpConnection, message: dict[str, Any]) -> None:

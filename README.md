@@ -1,6 +1,6 @@
 # BornFoRdeatH Codex Plugins
 
-Public Codex plugin marketplace containing **Codex Companion 0.6.0** (technical plugin ID `codex-usage-monitor`), with session-isolated local telemetry, Native History Focus, Usage Advisor, Usage Guard, and
+Public Codex plugin marketplace containing **Codex Companion 0.6.1** (technical plugin ID `codex-usage-monitor`), with session-isolated local telemetry, Native History Focus, Usage Advisor, Usage Guard, and
 optional memory-only runtime UI for the Codex desktop app.
 
 ## Install from GitHub

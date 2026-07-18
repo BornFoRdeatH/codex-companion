@@ -38,5 +38,20 @@
     return {compatible: true, reason: "native_range", mounted, totalTurnCount: mounted[0].totalTurnCount};
   }
 
-  return {boundedCount, planWindow, validateMountedRange};
+  function signedBoundaryScrollTop(currentScrollTop, boundaryTop, scrollerTop, gateHeight) {
+    const values = [currentScrollTop, boundaryTop, scrollerTop, gateHeight].map(Number);
+    return values.every(Number.isFinite) ? values[0] + values[1] - values[2] - values[3] : null;
+  }
+
+  function compensatedScrollTop(currentScrollTop, beforeTop, afterTop) {
+    const values = [currentScrollTop, beforeTop, afterTop].map(Number);
+    return values.every(Number.isFinite) ? values[0] + values[2] - values[1] : null;
+  }
+
+  function shouldClampScroll(currentScrollTop, boundaryScrollTop, tolerance = 2) {
+    const current = Number(currentScrollTop), boundary = Number(boundaryScrollTop), margin = Math.max(0, Number(tolerance) || 0);
+    return Number.isFinite(current) && Number.isFinite(boundary) && current < boundary - margin;
+  }
+
+  return {boundedCount, planWindow, validateMountedRange, signedBoundaryScrollTop, compensatedScrollTop, shouldClampScroll};
 });

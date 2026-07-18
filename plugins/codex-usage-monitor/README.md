@@ -1,4 +1,4 @@
-# Codex Companion 0.6.0
+# Codex Companion 0.6.1
 
 Local Codex token, context, quota, operation, subagent, and account telemetry. Version 0.2 adds an
 optional runtime UI: a persistent resizable dock plus compact telemetry footers below commentary
@@ -24,6 +24,11 @@ the boundary. Streaming/latest turns always remain accessible. It never reads pr
 tool contents. If at least three mounted turns do not form one contiguous, stable native range, the
 feature fails open and restores standard Codex navigation immediately.
 
+The Codex conversation scroller uses `column-reverse`, so its history boundary can be a negative
+`scrollTop`. Companion preserves that signed boundary, keeps native overscan dimensions intact,
+suppresses only paint/interactions, and inserts the gate without browser scroll anchoring. Until
+the boundary turn is mounted, state is `pending_boundary` and no programmatic scrolling occurs.
+
 ```toml
 [ui.focus_mode]
 enabled = true
@@ -36,7 +41,8 @@ unknown_version_policy = "probe"
 
 `visible_turns` and `load_batch` accept values from 5 through 100. Setting `enabled = false`
 immediately restores Codex's standard navigation. Diagnostics contain only thread ID,
-compatibility, total/mounted counts, logical window boundary, and hidden logical-turn count in
+compatibility, total/mounted counts, logical window boundary, hidden logical-turn count, signed
+boundary, scroll direction, and guard state in
 `ui-status.json`. Existing `[ui.chat_virtualization]` values migrate automatically in v0.6.0 and
 remain accepted as deprecated aliases for this release.
 

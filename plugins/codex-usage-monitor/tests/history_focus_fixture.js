@@ -1,7 +1,9 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const {boundedCount, planWindow, validateMountedRange} = require("../ui/history_focus.js");
+const {
+  boundedCount, planWindow, validateMountedRange, signedBoundaryScrollTop, compensatedScrollTop, shouldClampScroll,
+} = require("../ui/history_focus.js");
 
 const mounted = Array.from({length: 5}, (_, index) => ({
   turnKey: `turn-${index + 30}`,
@@ -29,6 +31,15 @@ assert.equal(boundedCount(4), 10);
 assert.equal(boundedCount(101), 10);
 assert.equal(boundedCount(5), 5);
 assert.equal(boundedCount(100), 100);
+
+assert.equal(signedBoundaryScrollTop(-8000, 100, 83, 30), -8013);
+assert.equal(signedBoundaryScrollTop(8000, 100, 83, 30), 7987);
+assert.equal(signedBoundaryScrollTop(0, Number.NaN, 0, 20), null);
+assert.equal(shouldClampScroll(-8100, -8013), true);
+assert.equal(shouldClampScroll(-8014, -8013), false);
+assert.equal(shouldClampScroll(7900, 7987), true);
+assert.equal(compensatedScrollTop(-8013, 120, 150), -7983);
+assert.equal(compensatedScrollTop(500, 150, 120), 470);
 
 const longRange = Array.from({length: 5}, (_, index) => ({turnKey: `long-${196 + index}`, turnNumber: 196 + index, totalTurnCount: 200, parentKey: "root"}));
 const started = performance.now();

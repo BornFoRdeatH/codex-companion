@@ -1,6 +1,6 @@
 {
   "name": "codex-usage-monitor",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Codex Companion adds session-isolated telemetry, native history focus, Usage Advisor, Guard, History, dock, and message footers.",
   "author": {
     "name": "Local"

@@ -216,6 +216,12 @@ class UiTests(unittest.TestCase):
         self.assertIn('typeof props.entry==="object"', source)
         self.assertIn("const incrementalRoots", source)
         self.assertIn("onFocusScroll", source)
+        self.assertIn("signedBoundaryScrollTop", source)
+        self.assertIn("compensatedScrollTop", source)
+        self.assertIn("shouldClampScroll", source)
+        self.assertIn('focusState:"pending_boundary"', source)
+        self.assertIn('scroller.style.overflowAnchor="none"', source)
+        self.assertNotIn('row.style.display="none"', source)
         self.assertIn("record.addedNodes", source)
         self.assertIn('node.matches?.("[data-turn-key]")', source)
         self.assertIn("turnOriginalStyles:new WeakMap()", source)
@@ -232,6 +238,9 @@ class UiTests(unittest.TestCase):
         self.assertNotIn('startsWith("ru")', source)
         self.assertNotIn("5h used", source)
         self.assertNotIn("backdrop-filter", source)
+        host_source = (Path(__file__).resolve().parents[1] / "scripts" / "codex_usage_monitor" / "ui_host.py").read_text(encoding="utf-8")
+        for field in ("focus_state", "boundary_turn", "boundary_scroll_top", "scroll_direction", "guard_active"):
+            self.assertIn(field, host_source)
 
     def test_builtin_widget_uses_localized_placeholders(self) -> None:
         source = (
