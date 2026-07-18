@@ -134,6 +134,17 @@ class UiTests(unittest.TestCase):
             self.assertGreaterEqual(rows[0]["duration_seconds"], 0)
             storage.close()
 
+    def test_legacy_index_snapshots_are_removed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "usage.sqlite3"
+            storage = Storage(path)
+            storage.save_message_snapshot("/index.html", "legacy", None, "commentary", True, {})
+            storage.set_meta("removed_legacy_index_snapshots", "0")
+            storage.close()
+            storage = Storage(path)
+            self.assertEqual(storage.message_snapshots("/index.html"), [])
+            storage.close()
+
     def test_message_snapshot_preserves_first_seen_and_completion_time(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             storage = Storage(Path(directory) / "usage.sqlite3")
@@ -169,6 +180,9 @@ class UiTests(unittest.TestCase):
         self.assertIn("findComposerToggleGroup", source)
         self.assertIn("identityFromProps", source)
         self.assertIn("conversationId", source)
+        self.assertIn('type:"active_thread"', source)
+        self.assertIn("activeConversationFromComposer", source)
+        self.assertIn('value===null||value===undefined||value===""', source)
         self.assertIn("nativeContextPercent", source)
         self.assertIn('type:"context"', source)
         self.assertIn("turn.total", source)

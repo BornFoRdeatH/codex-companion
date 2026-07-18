@@ -77,6 +77,8 @@ def derive(summary: dict[str, Any], config: LoadedConfig) -> dict[str, Any]:
     tools = summary.get("tools") or {}
     account = summary.get("account") or {}
     primary, secondary = _selected_rates(summary)
+    has_token = bool(token)
+    has_turn = bool(turn)
     latest_total = int(token.get("total_tokens") or 0)
     baseline_total = int(turn.get("baseline_total") or 0)
     latest_input = int(token.get("input_tokens") or 0)
@@ -107,24 +109,24 @@ def derive(summary: dict[str, Any], config: LoadedConfig) -> dict[str, Any]:
         "primary": _rate_view(primary, now, timezone_name, date_fmt, config),
         "secondary": _rate_view(secondary, now, timezone_name, date_fmt, config),
         "thread": {
-            "total": latest_total,
-            "input": latest_input,
-            "cached": latest_cached,
-            "uncached": max(0, latest_input - latest_cached),
-            "output": latest_output,
-            "reasoning": latest_reasoning,
+            "total": latest_total if has_token else None,
+            "input": latest_input if has_token else None,
+            "cached": latest_cached if has_token else None,
+            "uncached": max(0, latest_input - latest_cached) if has_token else None,
+            "output": latest_output if has_token else None,
+            "reasoning": latest_reasoning if has_token else None,
             "cache_hit": (latest_cached / latest_input * 100.0) if latest_input else None,
             "source": token.get("source"),
         },
         "turn": {
             "id": turn.get("turn_id"),
             "duration": turn_duration,
-            "total": turn_total,
-            "input": max(0, latest_input - int(turn.get("baseline_input") or 0)) if turn else 0,
-            "cached": max(0, latest_cached - int(turn.get("baseline_cached") or 0)) if turn else 0,
-            "output": max(0, latest_output - int(turn.get("baseline_output") or 0)) if turn else 0,
-            "reasoning": max(0, latest_reasoning - int(turn.get("baseline_reasoning") or 0)) if turn else 0,
-            "model_calls": _model_calls(summary, turn) if turn else 0,
+            "total": turn_total if has_turn and has_token else None,
+            "input": max(0, latest_input - int(turn.get("baseline_input") or 0)) if has_turn and has_token else None,
+            "cached": max(0, latest_cached - int(turn.get("baseline_cached") or 0)) if has_turn and has_token else None,
+            "output": max(0, latest_output - int(turn.get("baseline_output") or 0)) if has_turn and has_token else None,
+            "reasoning": max(0, latest_reasoning - int(turn.get("baseline_reasoning") or 0)) if has_turn and has_token else None,
+            "model_calls": _model_calls(summary, turn) if has_turn and has_token else None,
             "quota_primary_delta": primary_delta,
             "quota_secondary_delta": secondary_delta,
         },

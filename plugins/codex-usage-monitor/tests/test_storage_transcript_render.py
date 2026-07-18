@@ -40,7 +40,7 @@ class StorageTranscriptRenderTests(unittest.TestCase):
         self.assertAlmostEqual(view["thread"]["cache_hit"], 64000 / 94469 * 100)
         self.assertAlmostEqual(view["context"]["used_percent"], 37759 / 353400 * 100)
         self.assertEqual(view["context"]["source"], "estimated")
-        self.assertEqual(view["turn"]["total"], 0)
+        self.assertIsNone(view["turn"]["total"])
 
     def test_turn_and_tool_aggregation(self) -> None:
         self.storage.upsert_session("s", None, "gpt-test", None)
@@ -58,6 +58,37 @@ class StorageTranscriptRenderTests(unittest.TestCase):
         self.storage.upsert_session("s", None, "gpt-test", None)
         self.storage.start_turn("t", "s")
         self.assertEqual(self.storage.summary(None, None)["turn"]["turn_id"], "t")
+
+    def test_session_summary_never_falls_back_to_another_live_session(self) -> None:
+        for session in ("short", "long"):
+            self.storage.upsert_session(session, None, "gpt-test", None)
+        self.storage.start_turn("short-turn", "short")
+        self.storage.add_tokens(
+            "short", "short-turn",
+            {"total": {"input_tokens": 22147, "output_tokens": 11, "total_tokens": 22158},
+             "last": {"input_tokens": 22147, "output_tokens": 11, "total_tokens": 22158},
+             "model_context_window": 258400},
+            time.time(), "test",
+        )
+        self.storage.end_turn("short-turn")
+        self.storage.start_turn("long-turn", "long")
+        self.storage.add_tokens(
+            "long", "long-turn",
+            {"total": {"input_tokens": 101_299_000, "output_tokens": 1_000, "total_tokens": 101_300_000},
+             "last": {"input_tokens": 200_000, "output_tokens": 1_000, "total_tokens": 201_000}},
+            time.time(), "test",
+        )
+        selected = self.storage.summary("short", None)
+        self.assertEqual(selected["turn"]["turn_id"], "short-turn")
+        self.assertEqual(selected["token"]["total_tokens"], 22158)
+
+    def test_new_turn_closes_orphaned_predecessor_in_same_session(self) -> None:
+        self.storage.upsert_session("s", None, "gpt-test", None)
+        self.storage.start_turn("old", "s")
+        self.storage.start_turn("new", "s")
+        old = self.storage.conn.execute("SELECT ended_at FROM turns WHERE turn_id='old'").fetchone()
+        self.assertIsNotNone(old["ended_at"])
+        self.assertEqual(self.storage.active_turn("s")["turn_id"], "new")
 
     def test_historical_turn_uses_its_own_token_snapshot(self) -> None:
         self.storage.upsert_session("s", None, "gpt-test", None)
@@ -91,7 +122,7 @@ class StorageTranscriptRenderTests(unittest.TestCase):
         summary = self.storage.summary(None, None)
         data = derive(summary, self.config)
         text = render_template("Turn {turn.total_tokens} Ctx {context.used_percent}", data, self.config)
-        self.assertEqual(text, "Turn 0 Ctx N/A")
+        self.assertEqual(text, "Turn N/A Ctx N/A")
         self.assertIn("Codex usage", render(summary, self.config, "normal"))
 
     def test_official_app_server_snapshots_win_over_time(self) -> None:

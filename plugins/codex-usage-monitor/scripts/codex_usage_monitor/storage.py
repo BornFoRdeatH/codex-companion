@@ -144,6 +144,9 @@ class Storage:
         self._ensure_column("ui_message_snapshots", "first_seen_at", "REAL")
         self._ensure_column("ui_message_snapshots", "completed_at", "REAL")
         self.conn.execute("UPDATE ui_message_snapshots SET first_seen_at=observed_at WHERE first_seen_at IS NULL")
+        if self.get_meta("removed_legacy_index_snapshots") != "1":
+            self.conn.execute("DELETE FROM ui_message_snapshots WHERE thread_id='/index.html'")
+            self.set_meta("removed_legacy_index_snapshots", "1")
         self.conn.commit()
         self.set_meta("schema_version", "1")
 
@@ -190,6 +193,13 @@ class Storage:
         return self.conn.execute("SELECT * FROM token_snapshots ORDER BY observed_at DESC,id DESC LIMIT 1").fetchone()
 
     def start_turn(self, turn_id: str, session_id: str) -> None:
+        now = time.time()
+        # A session can only have one live turn. Closing an orphaned predecessor
+        # prevents it from winning later session-local selection forever.
+        self.conn.execute(
+            "UPDATE turns SET ended_at=? WHERE session_id=? AND ended_at IS NULL AND turn_id<>?",
+            (now, session_id, turn_id),
+        )
         token = self.latest_tokens(session_id)
         rates = self.latest_rates()
         primary = rates.get(("codex", "primary")) or next((v for k, v in rates.items() if k[1] == "primary"), None)
@@ -208,7 +218,7 @@ class Storage:
                baseline_output,baseline_reasoning,baseline_primary_percent,baseline_secondary_percent)
                VALUES(?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(turn_id) DO NOTHING""",
-            (turn_id, session_id, time.time(), *values),
+            (turn_id, session_id, now, *values),
         )
         self.conn.commit()
 
@@ -221,6 +231,15 @@ class Storage:
             "SELECT * FROM turns WHERE session_id=? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1",
             (session_id,),
         ).fetchone()
+
+    def latest_turn(self, session_id: str) -> sqlite3.Row | None:
+        return self.conn.execute(
+            "SELECT * FROM turns WHERE session_id=? ORDER BY (ended_at IS NULL) DESC,started_at DESC LIMIT 1",
+            (session_id,),
+        ).fetchone()
+
+    def has_session(self, session_id: str) -> bool:
+        return self.conn.execute("SELECT 1 FROM sessions WHERE session_id=? LIMIT 1", (session_id,)).fetchone() is not None
 
     def add_tokens(self, session_id: str, turn_id: str | None, info: dict[str, Any], observed_at: float, source: str) -> None:
         total = info.get("total_token_usage") or info.get("total") or {}
@@ -456,7 +475,7 @@ class Storage:
     def summary(self, session_id: str | None, turn_id: str | None) -> dict[str, Any]:
         turn = self.conn.execute("SELECT * FROM turns WHERE turn_id=?", (turn_id,)).fetchone() if turn_id else None
         if not turn and session_id:
-            turn = self.active_turn(session_id)
+            turn = self.latest_turn(session_id)
         if not turn and not session_id:
             turn = self.conn.execute(
                 "SELECT * FROM turns ORDER BY (ended_at IS NULL) DESC,started_at DESC LIMIT 1"

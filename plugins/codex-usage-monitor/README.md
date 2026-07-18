@@ -1,4 +1,4 @@
-# Codex Usage Monitor 0.2.10
+# Codex Usage Monitor 0.2.11
 
 Local Codex token, context, quota, operation, subagent, and account telemetry. Version 0.2 adds an
 optional runtime UI: a persistent resizable dock plus compact telemetry footers below commentary
@@ -7,6 +7,13 @@ and final answers on explicitly supported Codex desktop builds.
 The UI is injected in memory over a random loopback Chromium DevTools port. It does not modify
 Codex files, `app.asar`, package signatures, or model context. Hooks collect telemetry but are not
 used as the display surface while `[ui]` is enabled.
+
+## Session isolation
+
+The desktop runtime reads only the active composer's structural `conversationId`. Thread tokens,
+context, tools, compactions, and turn metrics are selected inside that session; account quota remains
+global. A new or not-yet-registered chat shows unavailable values instead of borrowing another chat's
+latest turn. `ui-status.json` records the active thread, its state, and the last switch timestamp.
 
 ## Install from GitHub
 

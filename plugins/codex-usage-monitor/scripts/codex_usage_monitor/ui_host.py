@@ -63,7 +63,10 @@ class UiHost:
         self.stop = False
         self._last_heartbeat = 0.0
         self.runtime_compatibility = "unknown"
-        self.native_context_by_turn: dict[str, float] = {}
+        self.native_context_by_turn: dict[tuple[str, str], float] = {}
+        self.active_thread_id: str | None = None
+        self.active_session_state = "pending"
+        self.active_thread_switched_at: float | None = None
         signal.signal(signal.SIGINT, lambda *_: setattr(self, "stop", True))
         if hasattr(signal, "SIGTERM"):
             signal.signal(signal.SIGTERM, lambda *_: setattr(self, "stop", True))
@@ -182,11 +185,12 @@ class UiHost:
         }
 
     def _push_snapshot(self, connection: CdpConnection) -> None:
-        snapshot = self._summary_payload(None)
+        snapshot = self._summary_payload(None, self.active_thread_id)
         turn = snapshot.get("turn") or {}
         if turn.get("turn_id") and turn.get("ended_at"):
             self.storage.refresh_completed_turn_snapshots(str(turn["turn_id"]), snapshot)
-        payload = {"snapshot": snapshot, "history": self.storage.message_snapshots(limit=500), "at": time.time()}
+        history = self.storage.message_snapshots(self.active_thread_id, limit=500) if self.active_thread_id else []
+        payload = {"snapshot": snapshot, "history": history, "at": time.time(), "activeThreadId": self.active_thread_id}
         expression = f"window.__codexUsageUpdate&&window.__codexUsageUpdate({json.dumps(payload, separators=(',', ':'))})"
         connection.call("Runtime.evaluate", {"expression": expression, "returnByValue": False}, timeout=1.0)
 
@@ -201,35 +205,46 @@ class UiHost:
                 message = json.loads(params.get("payload", "{}"))
             except json.JSONDecodeError:
                 continue
-            if message.get("type") == "item" and message.get("threadId") and message.get("itemId"):
+            if message.get("type") == "active_thread":
+                raw_id = message.get("threadId")
+                thread_id = str(raw_id)[:128] if raw_id and not str(raw_id).startswith("client-new-thread:") else None
+                if thread_id != self.active_thread_id or message.get("state") != self.active_session_state:
+                    self.active_thread_id = thread_id
+                    self.active_session_state = "available" if thread_id and self.storage.has_session(thread_id) else "pending"
+                    self.active_thread_switched_at = time.time()
+                    self._write_status(state="attached")
+            elif message.get("type") == "item" and message.get("threadId") and message.get("itemId"):
                 turn_id = str(message.get("turnId")) if message.get("turnId") else None
+                thread_id = str(message["threadId"])
                 context_percent = message.get("contextUsedPercent")
-                if turn_id and isinstance(context_percent, (int, float)) and 0 <= context_percent <= 100:
-                    self.native_context_by_turn[turn_id] = float(context_percent)
+                if turn_id and thread_id == self.active_thread_id and isinstance(context_percent, (int, float)) and 0 <= context_percent <= 100:
+                    self.native_context_by_turn[(thread_id, turn_id)] = float(context_percent)
                 self.storage.save_message_snapshot(
-                    str(message["threadId"]),
+                    thread_id,
                     str(message["itemId"]),
                     turn_id,
                     str(message.get("phase") or "unknown"),
                     bool(message.get("completed")),
-                    self._summary_payload(turn_id),
+                    self._summary_payload(turn_id, thread_id),
                 )
-            elif message.get("type") == "context" and message.get("turnId"):
+            elif message.get("type") == "context" and message.get("turnId") and message.get("threadId"):
                 context_percent = message.get("usedPercent")
-                if isinstance(context_percent, (int, float)) and 0 <= context_percent <= 100:
-                    self.native_context_by_turn[str(message["turnId"])] = float(context_percent)
+                thread_id, turn_id = str(message["threadId"]), str(message["turnId"])
+                if thread_id == self.active_thread_id and isinstance(context_percent, (int, float)) and 0 <= context_percent <= 100:
+                    self.native_context_by_turn[(thread_id, turn_id)] = float(context_percent)
             elif message.get("type") == "compatibility" and message.get("compatible") is True:
                 self.runtime_compatibility = str(message.get("evidence") or "structural")
             elif message.get("type") == "compatibility" and message.get("compatible") is False:
                 self.runtime_compatibility = str(message.get("evidence") or "incompatible")
 
-    def _summary_payload(self, turn_id: str | None) -> dict[str, Any]:
-        summary = self.storage.summary(None, turn_id)
+    def _summary_payload(self, turn_id: str | None, session_id: str | None = None) -> dict[str, Any]:
+        summary = self.storage.summary(session_id, turn_id)
         summary["view"] = derive(summary, self.config)
         selected_turn = summary.get("turn") or {}
         selected_turn_id = str(selected_turn.get("turn_id") or turn_id or "")
         context = summary["view"].get("context") or {}
-        native_percent = self.native_context_by_turn.get(selected_turn_id)
+        selected_session_id = str(selected_turn.get("session_id") or session_id or "")
+        native_percent = self.native_context_by_turn.get((selected_session_id, selected_turn_id))
         if native_percent is not None:
             window = context.get("window")
             context.update(
@@ -250,6 +265,9 @@ class UiHost:
         value["updated_at"] = time.time()
         value["host_pid"] = os.getpid()
         value.setdefault("runtime_compatibility", self.runtime_compatibility)
+        value.setdefault("active_thread_id", self.active_thread_id)
+        value.setdefault("active_session_state", self.active_session_state)
+        value.setdefault("active_thread_switched_at", self.active_thread_switched_at)
         temp = self.plugin_data / "ui-status.json.tmp"
         temp.write_text(json.dumps(value, indent=2), encoding="utf-8")
         temp.replace(self.plugin_data / "ui-status.json")
