@@ -1,4 +1,9 @@
-# Codex Companion 1.0.0
+# Codex Companion 1.1.0
+
+The UI uses a compact live dock plus a responsive Control Center with Overview,
+Context Optimizer, Usage History, Handoff, Projects, Diagnostics, and Settings
+tabs. Its actions are advisory-only: they require an explicit click and Companion
+never presses Send.
 
 Local Codex token, context, quota, operation, subagent, and account telemetry. Version 0.2 adds an
 optional runtime UI: a persistent resizable dock plus compact telemetry footers below commentary
@@ -308,7 +313,7 @@ transcript, and read/write SQLite snapshots. Failed App Server starts use a five
 
 On first use, `config.default.toml` is copied to `%PLUGIN_DATA%/config.toml`. When the CLI is run
 outside a hook, it resolves the active marketplace data directory under `~/.codex/plugins/data`.
-Version 0.4 keeps public config `schema_version = 1`, uses internal SQLite schema v3, and adds
+Version 1.1 keeps public config `schema_version = 1`, uses internal SQLite schema v6, and adds
 `[ui.advisor]` plus opt-in `[ui.advisor.prompt_coach]`. Existing configs inherit
 new defaults. Unknown keys warn and invalid values fall back safely.
 
