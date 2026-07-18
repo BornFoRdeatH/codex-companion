@@ -222,6 +222,7 @@ def _plugin_family(plugin_root: Path) -> Path:
 def _bootstrap_source(plugin_family: Path, plugin_data: Path) -> str:
     return f'''from __future__ import annotations
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -245,7 +246,11 @@ if "--check" in sys.argv:
 forward = [value for value in sys.argv[1:] if value != "--check"]
 error_log.unlink(missing_ok=True)
 try:
-    os.execv(sys.executable, [sys.executable, str(script), "--data-dir", {str(plugin_data)!r}, "ui", "launch", *forward])
+    completed = subprocess.run(
+        [sys.executable, str(script), "--data-dir", {str(plugin_data)!r}, "ui", "launch", *forward],
+        check=False,
+    )
+    raise SystemExit(completed.returncode)
 except OSError as exc:
     message = f"Cannot launch Codex Usage Monitor: {{exc}}"
     error_log.write_text(message, encoding="utf-8")

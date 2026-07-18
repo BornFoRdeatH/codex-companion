@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -46,6 +48,22 @@ class UiTests(unittest.TestCase):
         self.assertIn('"--check" in sys.argv', source)
         self.assertIn("launcher-error.log", source)
         self.assertNotIn(str(version), source)
+
+    def test_bootstrap_launches_from_paths_with_spaces(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="usage monitor ") as directory:
+            root = Path(directory)
+            family = root / "cache"
+            script = family / "0.2.7" / "scripts" / "usage_monitor.py"
+            script.parent.mkdir(parents=True)
+            script.write_text("import sys; print('|'.join(sys.argv[1:]))", encoding="utf-8")
+            bootstrap = root / "launcher.py"
+            bootstrap.write_text(_bootstrap_source(family, root / "plugin data"), encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(bootstrap), "--smoke"], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("--data-dir", result.stdout)
+            self.assertIn("plugin data|ui|launch|--smoke", result.stdout)
 
     @unittest.skipUnless(os.name == "nt", "Windows process restart")
     def test_restart_existing_codex_terminates_only_root_process_tree(self) -> None:

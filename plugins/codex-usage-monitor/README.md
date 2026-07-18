@@ -1,4 +1,4 @@
-# Codex Usage Monitor 0.2.6
+# Codex Usage Monitor 0.2.7
 
 Local Codex token, context, quota, operation, subagent, and account telemetry. Version 0.2 adds an
 optional runtime UI: a persistent resizable dock plus compact telemetry footers below commentary
@@ -43,6 +43,10 @@ On Windows the installed shortcut passes `--restart-existing`: it closes an exis
 Codex process tree before starting the app with its loopback DevTools port. This is required because
 Codex is single-instance and may remain running after its last visible window is closed. Direct
 `ui launch` calls remain non-destructive unless the flag is supplied explicitly.
+
+The stable bootstrap invokes the selected plugin through `subprocess` with an argument vector.
+This preserves Windows interpreter paths containing spaces, including
+`C:\Program Files\Python312`, instead of relying on `os.execv` command-line parsing.
 
 ## Compatibility behavior
 
