@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 from .collector import ensure_collector, find_codex_executable
+from .budget import evaluate as evaluate_budget
 from .config import ConfigError, load_config
 from .render import render
 from .render import derive
@@ -56,6 +57,20 @@ def parser() -> argparse.ArgumentParser:
     history.add_argument("--format", choices=("json", "csv"), default="json")
     advice = sub.add_parser("advice")
     advice.add_argument("--session-id", required=True)
+    budget = sub.add_parser("budget")
+    budget_sub = budget.add_subparsers(dest="budget_command", required=True)
+    budget_status = budget_sub.add_parser("status")
+    budget_status.add_argument("--session-id")
+    projects = sub.add_parser("projects")
+    projects_sub = projects.add_subparsers(dest="projects_command", required=True)
+    projects_sub.add_parser("list")
+    alias = projects_sub.add_parser("alias")
+    alias.add_argument("--cwd-hash", required=True)
+    alias.add_argument("--name", required=True)
+    export_project = sub.add_parser("export-project")
+    export_project.add_argument("--cwd-hash", required=True)
+    export_project.add_argument("--since", default="30d")
+    export_project.add_argument("--format", choices=("json", "csv"), default="json")
     reset = sub.add_parser("reset-cache")
     reset.add_argument("--yes", action="store_true")
     ui = sub.add_parser("ui")
@@ -128,6 +143,32 @@ def main(argv: list[str] | None = None) -> int:
             summary = storage.summary(args.session_id, None, int(config.get("ui.advisor.baseline_window", 50)))
             payload = derive(summary, config).get("advisor") or {"items": [], "highest": None}
             print(json.dumps(payload, indent=2, ensure_ascii=False, default=str))
+            return 0
+        if args.command == "budget":
+            summary = storage.summary(args.session_id, None, int(config.get("ui.budget.baseline_window", 50)))
+            summary["view"] = derive(summary, config)
+            print(json.dumps(evaluate_budget(summary, config), indent=2, ensure_ascii=False, default=str))
+            return 0
+        if args.command == "projects":
+            if args.projects_command == "alias":
+                storage.set_project_alias(args.cwd_hash, args.name)
+                print(json.dumps(storage.project_insights(args.cwd_hash), indent=2, ensure_ascii=False, default=str))
+            else:
+                print(json.dumps(storage.list_projects(), indent=2, ensure_ascii=False, default=str))
+            return 0
+        if args.command == "export-project":
+            payload = storage.project_insights(args.cwd_hash, _since_timestamp(args.since))
+            if args.format == "json":
+                print(json.dumps(payload, indent=2, ensure_ascii=False, default=str))
+            else:
+                rows = payload.get("daily") or []
+                output = io.StringIO(newline="")
+                fields = ["day", "turns", "total_tokens", "duration_seconds", "tool_seconds", "tool_calls",
+                          "failed_tool_calls", "file_edits", "compactions", "primary_quota_delta"]
+                writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
+                writer.writeheader()
+                writer.writerows(rows)
+                print(output.getvalue(), end="")
             return 0
         if args.command == "export-history":
             rows = storage.history(args.session_id, _since_timestamp(args.since),

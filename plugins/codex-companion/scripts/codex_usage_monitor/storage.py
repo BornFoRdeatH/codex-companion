@@ -180,6 +180,29 @@ CREATE TABLE IF NOT EXISTS turn_advice (
     PRIMARY KEY(session_id,turn_id,code)
 );
 CREATE INDEX IF NOT EXISTS advice_session_time ON turn_advice(session_id,created_at);
+CREATE TABLE IF NOT EXISTS project_aliases (
+    cwd_hash TEXT PRIMARY KEY,
+    alias TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS project_daily_aggregates (
+    cwd_hash TEXT NOT NULL,
+    day TEXT NOT NULL,
+    turns INTEGER NOT NULL,
+    total_tokens INTEGER NOT NULL,
+    duration_seconds REAL NOT NULL,
+    tool_seconds REAL NOT NULL,
+    tool_calls INTEGER NOT NULL,
+    failed_tool_calls INTEGER NOT NULL,
+    file_edits INTEGER NOT NULL,
+    compactions INTEGER NOT NULL,
+    primary_quota_delta REAL,
+    models_json TEXT NOT NULL,
+    materialized_at REAL NOT NULL,
+    PRIMARY KEY(cwd_hash,day)
+);
+CREATE INDEX IF NOT EXISTS project_daily_day ON project_daily_aggregates(day);
 """
 
 
@@ -207,12 +230,13 @@ class Storage:
             self.conn.execute("DELETE FROM ui_message_snapshots WHERE thread_id='/index.html'")
             self.set_meta("removed_legacy_index_snapshots", "1")
         self.conn.commit()
-        self.set_meta("schema_version", "3")
+        self.set_meta("schema_version", "4")
         self.materialize_completed_turns()
-        if previous_schema != "3":
+        if previous_schema != "4":
             turn_ids = self.conn.execute("SELECT turn_id FROM turns WHERE ended_at IS NOT NULL").fetchall()
             for row in turn_ids:
                 self.materialize_turn(str(row["turn_id"]), commit=False)
+            self.rebuild_project_aggregates(commit=False)
             self.conn.commit()
 
     def _ensure_column(self, table: str, column: str, declaration: str) -> None:
@@ -232,6 +256,117 @@ class Storage:
             (key, value),
         )
         self.conn.commit()
+
+    def set_project_alias(self, cwd_hash: str, alias: str) -> None:
+        key, label = str(cwd_hash).strip(), " ".join(str(alias).split()).strip()
+        if not key or len(key) > 128 or not label or len(label) > 80:
+            raise ValueError("cwd_hash and alias are required; alias must be at most 80 characters")
+        now = time.time()
+        self.conn.execute(
+            """INSERT INTO project_aliases(cwd_hash,alias,created_at,updated_at) VALUES(?,?,?,?)
+               ON CONFLICT(cwd_hash) DO UPDATE SET alias=excluded.alias,updated_at=excluded.updated_at""",
+            (key, label, now, now),
+        )
+        self.conn.commit()
+
+    def project_for_session(self, session_id: str | None) -> dict[str, Any] | None:
+        if not session_id:
+            return None
+        row = self.conn.execute(
+            """SELECT s.cwd_hash,p.alias FROM sessions s LEFT JOIN project_aliases p ON p.cwd_hash=s.cwd_hash
+               WHERE s.session_id=?""", (session_id,),
+        ).fetchone()
+        if not row or not row["cwd_hash"]:
+            return None
+        return {"cwd_hash": row["cwd_hash"], "project_id": str(row["cwd_hash"])[:8], "alias": row["alias"]}
+
+    def list_projects(self) -> list[dict[str, Any]]:
+        rows = self.conn.execute(
+            """SELECT s.cwd_hash,p.alias,COUNT(DISTINCT s.session_id) sessions,MAX(s.updated_at) last_seen
+               FROM sessions s LEFT JOIN project_aliases p ON p.cwd_hash=s.cwd_hash
+               WHERE s.cwd_hash IS NOT NULL GROUP BY s.cwd_hash,p.alias ORDER BY last_seen DESC"""
+        ).fetchall()
+        return [{**dict(row), "project_id": str(row["cwd_hash"])[:8]} for row in rows]
+
+    def rebuild_project_aggregates(self, commit: bool = True) -> None:
+        self.conn.execute("DELETE FROM project_daily_aggregates")
+        rows = self.conn.execute(
+            """SELECT s.cwd_hash,strftime('%Y-%m-%d',a.ended_at,'unixepoch','localtime') day,
+                      COUNT(*) turns,COALESCE(SUM(a.total_tokens),0) total_tokens,
+                      COALESCE(SUM(a.duration_seconds),0) duration_seconds,COALESCE(SUM(a.tool_seconds),0) tool_seconds,
+                      COALESCE(SUM(a.tool_calls),0) tool_calls,COALESCE(SUM(a.failed_tool_calls),0) failed_tool_calls,
+                      COALESCE(SUM(a.file_edits),0) file_edits,COALESCE(SUM(a.compaction_count),0) compactions,
+                      SUM(a.primary_quota_delta) primary_quota_delta
+               FROM turn_aggregates a JOIN sessions s ON s.session_id=a.session_id
+               WHERE s.cwd_hash IS NOT NULL GROUP BY s.cwd_hash,day"""
+        ).fetchall()
+        for row in rows:
+            models = self.conn.execute(
+                """SELECT a.model,COUNT(*) turns,COALESCE(SUM(a.total_tokens),0) tokens
+                   FROM turn_aggregates a JOIN sessions s ON s.session_id=a.session_id
+                   WHERE s.cwd_hash=? AND strftime('%Y-%m-%d',a.ended_at,'unixepoch','localtime')=?
+                   GROUP BY a.model ORDER BY tokens DESC""", (row["cwd_hash"], row["day"]),
+            ).fetchall()
+            self.conn.execute(
+                """INSERT INTO project_daily_aggregates(cwd_hash,day,turns,total_tokens,duration_seconds,
+                   tool_seconds,tool_calls,failed_tool_calls,file_edits,compactions,primary_quota_delta,
+                   models_json,materialized_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (*tuple(row), json.dumps([dict(item) for item in models], separators=(",", ":")), time.time()),
+            )
+        if commit:
+            self.conn.commit()
+
+    def project_insights(self, cwd_hash: str, since: float | None = None) -> dict[str, Any]:
+        project = next((item for item in self.list_projects() if item["cwd_hash"] == cwd_hash), None)
+        if not project:
+            raise ValueError("Unknown project")
+        self.rebuild_project_aggregates()
+        since_day = time.strftime("%Y-%m-%d", time.localtime(float(since))) if since else "0000-00-00"
+        rows = self.conn.execute(
+            "SELECT * FROM project_daily_aggregates WHERE cwd_hash=? AND day>=? ORDER BY day",
+            (cwd_hash, since_day),
+        ).fetchall()
+        daily = []
+        totals = {key: 0 for key in ("turns", "total_tokens", "duration_seconds", "tool_seconds", "tool_calls", "failed_tool_calls", "file_edits", "compactions")}
+        quota = 0.0
+        models: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            value = dict(row)
+            value["models"] = json.loads(value.pop("models_json") or "[]")
+            value.pop("materialized_at", None)
+            daily.append(value)
+            for key in totals:
+                totals[key] += value[key] or 0
+            quota += value.get("primary_quota_delta") or 0
+            for item in value["models"]:
+                key = str(item.get("model") or "unavailable")
+                target = models.setdefault(key, {"model": item.get("model"), "turns": 0, "tokens": 0})
+                target["turns"] += int(item.get("turns") or 0)
+                target["tokens"] += int(item.get("tokens") or 0)
+        return {"project": project, "totals": {**totals, "primary_quota_delta": quota},
+                "models": sorted(models.values(), key=lambda item: item["tokens"], reverse=True), "daily": daily}
+
+    def budget_baseline(self, session_id: str | None, window: int = 50) -> dict[str, Any]:
+        project = self.project_for_session(session_id)
+        model_row = self.conn.execute("SELECT model FROM sessions WHERE session_id=?", (session_id,)).fetchone() if session_id else None
+        model = model_row["model"] if model_row else None
+        params: list[Any] = []
+        where = ["a.total_tokens IS NOT NULL"]
+        if model:
+            where.append("a.model=?")
+            params.append(model)
+        if project:
+            where.append("s.cwd_hash=?")
+            params.append(project["cwd_hash"])
+        params.append(max(1, min(int(window), 500)))
+        rows = self.conn.execute(
+            f"""SELECT a.total_tokens,a.primary_quota_delta FROM turn_aggregates a
+                  JOIN sessions s ON s.session_id=a.session_id WHERE {' AND '.join(where)}
+                  ORDER BY a.ended_at DESC LIMIT ?""", tuple(params),
+        ).fetchall()
+        return {"model": model, "project": project,
+                "total_tokens": robust_stats(row["total_tokens"] for row in rows),
+                "quota_delta": robust_stats(row["primary_quota_delta"] for row in rows)}
 
     def get_meta(self, key: str, default: Any = None) -> Any:
         row = self.conn.execute("SELECT value FROM metadata WHERE key=?", (key,)).fetchone()
@@ -815,6 +950,8 @@ class Storage:
             "subagents": dict(subagents) if subagents else {"started": 0, "completed": 0, "active": 0},
             "rolling_forecast": self.rolling_forecast(),
             "advisor_baseline": self.advisor_baseline(model, baseline_window, str(turn["turn_id"]) if turn else None),
+            "budget_baseline": self.budget_baseline(session_id, baseline_window),
+            "project": self.project_for_session(session_id),
             "prompt_features": self.prompt_features(str(turn["turn_id"])) if turn else None,
         }
 

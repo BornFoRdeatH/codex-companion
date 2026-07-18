@@ -114,6 +114,31 @@ def _validate(data: dict[str, Any]) -> list[str]:
     if advisor["max_visible"] < 1:
         warnings.append("ui.advisor.max_visible must be positive; using 1")
         advisor["max_visible"] = 1
+    budget = data["ui"]["budget"]
+    if budget["per_turn_tokens"] < 0:
+        warnings.append("ui.budget.per_turn_tokens must be non-negative; using adaptive")
+        budget["per_turn_tokens"] = 0
+    for key, fallback in (("weekly_remaining_reserve_percent", 10), ("warn_at_percent", 80), ("critical_at_percent", 100)):
+        if not 0 <= budget[key] <= 100:
+            warnings.append(f"ui.budget.{key} must be between 0 and 100; using {fallback}")
+            budget[key] = fallback
+    if budget["critical_at_percent"] < budget["warn_at_percent"]:
+        warnings.append("ui.budget.critical_at_percent must cover warn_at_percent; using 100")
+        budget["critical_at_percent"] = 100
+    if budget["min_personal_turns"] < 1:
+        warnings.append("ui.budget.min_personal_turns must be positive; using 10")
+        budget["min_personal_turns"] = 10
+    if budget["baseline_window"] < budget["min_personal_turns"]:
+        warnings.append("ui.budget.baseline_window must cover min_personal_turns; using 50")
+        budget["baseline_window"] = 50
+    if data["ui"]["projects"]["default_range"] not in {"7d", "30d", "90d", "all"}:
+        warnings.append("Invalid ui.projects.default_range; using 30d")
+        data["ui"]["projects"]["default_range"] = "30d"
+    performance = data["ui"]["performance"]
+    for key, fallback in (("active_refresh_ms", 200), ("idle_refresh_ms", 1000), ("background_refresh_ms", 5000)):
+        if performance[key] < 100:
+            warnings.append(f"ui.performance.{key} must be at least 100; using {fallback}")
+            performance[key] = fallback
     for key in ("progress_bar_width", "max_width", "max_lines"):
         if data["display"][key] < 1:
             warnings.append(f"display.{key} must be positive; using default")

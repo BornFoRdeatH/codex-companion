@@ -12,18 +12,18 @@ jobs:
         python: ["3.11", "3.12"]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
       - name: Compile
-        working-directory: plugins/codex-usage-monitor
+        working-directory: plugins/codex-companion
         run: python -m compileall -q scripts
       - name: Validate runtime JavaScript
-        working-directory: plugins/codex-usage-monitor
+        working-directory: plugins/codex-companion
         run: node --check ui/runtime.js
       - name: Test
-        working-directory: plugins/codex-usage-monitor
+        working-directory: plugins/codex-companion
         env:
           PYTHONPATH: scripts
           CODEX_USAGE_MONITOR_NO_COLLECTOR: "1"

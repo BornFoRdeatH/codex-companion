@@ -1,7 +1,7 @@
 {
   "name": "codex-usage-monitor",
-  "version": "0.6.1",
-  "description": "Codex Companion adds session-isolated telemetry, native history focus, Usage Advisor, Guard, History, dock, and message footers.",
+  "version": "0.7.0",
+  "description": "Codex Companion adds telemetry, history focus, advisory budgets, project insights, performance controls, and optimization guidance.",
   "author": {
     "name": "Local"
   },
@@ -15,8 +15,8 @@
   ],
   "interface": {
     "displayName": "Codex Companion",
-    "shortDescription": "Telemetry, focus, history, and optimization",
-    "longDescription": "Extends Codex with session-isolated telemetry, native history focus, local token-saving advice, privacy-safe history, alerts, and verified message footers without adding companion text to model context.",
+    "shortDescription": "Telemetry, control center, focus, and optimization",
+    "longDescription": "Extends Codex with session-isolated telemetry, a command palette, advisory budgets, project insights, smart performance scheduling, native history focus, local token-saving advice, privacy-safe history, alerts, and verified message footers.",
     "developerName": "Local",
     "category": "Productivity",
     "capabilities": [

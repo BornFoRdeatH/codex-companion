@@ -1,4 +1,4 @@
-# Codex Companion 0.6.1
+# Codex Companion 0.7.0
 
 Local Codex token, context, quota, operation, subagent, and account telemetry. Version 0.2 adds an
 optional runtime UI: a persistent resizable dock plus compact telemetry footers below commentary
@@ -10,6 +10,23 @@ used as the display surface while `[ui]` is enabled.
 
 The technical plugin ID remains `codex-usage-monitor`; existing configuration, SQLite history,
 hook trust, marketplace identity, and CLI commands remain compatible after the display-name change.
+
+## Companion Control Center
+
+Open the command palette from the composer toolbar or press `Ctrl+Shift+.`. It provides keyboard
+access to the dock, Focus Mode, History, advisory Budget Planner, Project Insights, Smart
+Performance Mode, Advisor, and privacy-safe diagnostics.
+
+Budget Planner estimates an expected/high token range from completed turns for the same model and
+project. Until ten samples exist it uses conservative thresholds. Prompt structure is reduced in
+renderer memory to numeric length/line/section/task counts; prompt text is never sent to the host,
+stored, or used to block submission. Project Insights groups data only by `cwd_hash`; a folder
+basename is shown transiently and becomes persistent only after the user confirms a local alias.
+
+Smart Performance Mode refreshes at 200 ms while active, 1 second while the dock is hidden or
+collapsed, and 5 seconds in the background. An IntersectionObserver pauses invisible footer work,
+while mutations remain coalesced into animation frames. Disable `[ui.performance].enabled` to
+restore fixed refresh behavior.
 
 ## Native History Focus
 
@@ -154,7 +171,7 @@ with current/all-chat scopes and 24h/7d/30d/all ranges. History is loaded only w
 CDP binding and rendered as dependency-free SVG. Labels contain only timestamp, model, and a short
 session ID; chat titles and message contents are never read.
 
-The UI host sends live snapshots at `ui.refresh_interval_ms`, writes a five-second heartbeat to
+The UI host uses the active/idle/background performance interval and writes a five-second heartbeat to
 `ui-status.json`, and reconnects after transient CDP or SQLite errors. Diagnostics are retained in
 `ui-host-error.log`; prompt, response, and tool contents are never written there.
 

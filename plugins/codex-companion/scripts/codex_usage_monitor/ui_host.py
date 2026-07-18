@@ -17,6 +17,7 @@ from .ui_launcher import discover_codex_app, launch_codex, reserve_loopback_port
 from .widgets import load_widgets, markdown_to_html, sanitize_html
 from .render import derive
 from .advisor import evaluate as evaluate_advice
+from .budget import evaluate as evaluate_budget, transient_features
 
 
 BINDING = "__codexUsageHost"
@@ -75,6 +76,9 @@ class UiHost:
             "focus_state": "pending_boundary", "boundary_turn": None, "boundary_scroll_top": None,
             "scroll_direction": None, "guard_active": False,
         }
+        self.transient_budget_features: dict[str, dict[str, Any]] = {}
+        self.performance_state = "active"
+        self.performance_diagnostics: dict[str, Any] = {"state": "active"}
         signal.signal(signal.SIGINT, lambda *_: setattr(self, "stop", True))
         if hasattr(signal, "SIGTERM"):
             signal.signal(signal.SIGTERM, lambda *_: setattr(self, "stop", True))
@@ -123,7 +127,7 @@ class UiHost:
                 if time.monotonic() - self._last_heartbeat >= 5.0:
                     self._write_status(state="attached", pid=process.pid, port=port, fingerprint=fp, adapter=adapter)
                     self._last_heartbeat = time.monotonic()
-                time.sleep(max(0.1, int(self.config.get("ui.refresh_interval_ms", 200)) / 1000))
+                time.sleep(self._refresh_delay())
             except (OSError, CdpError, KeyError, json.JSONDecodeError, sqlite3.Error) as exc:
                 self._log_error(exc)
                 self._write_status(state="reconnecting", pid=process.pid, port=port, error=str(exc), fingerprint=fp)
@@ -195,6 +199,10 @@ class UiHost:
             "historyConfig": self.config.get("ui.history", {}),
             "advisorConfig": self.config.get("ui.advisor", {}),
             "focusMode": self.config.get("ui.focus_mode", {}),
+            "commandPalette": self.config.get("ui.command_palette", {}),
+            "budgetConfig": self.config.get("ui.budget", {}),
+            "projectsConfig": self.config.get("ui.projects", {}),
+            "performanceConfig": self.config.get("ui.performance", {}),
         }
 
     def _push_snapshot(self, connection: CdpConnection) -> None:
@@ -224,6 +232,18 @@ class UiHost:
                 continue
             if message.get("type") == "history_request":
                 self._respond_history(connection, message)
+            elif message.get("type") == "project_request":
+                self._respond_projects(connection, message)
+            elif message.get("type") == "project_alias":
+                self._set_project_alias(connection, message)
+            elif message.get("type") == "budget_features" and self.active_thread_id:
+                self.transient_budget_features[self.active_thread_id] = transient_features(message.get("features"))
+            elif message.get("type") == "performance_state":
+                value = str(message.get("state") or "")
+                if value in {"active", "idle", "background"}:
+                    self.performance_state = value
+                    metrics = message.get("diagnostics")
+                    self.performance_diagnostics = {"state": value, **(metrics if isinstance(metrics, dict) else {})}
             elif message.get("type") == "active_thread":
                 raw_id = message.get("threadId")
                 thread_id = str(raw_id)[:128] if raw_id and not str(raw_id).startswith("client-new-thread:") else None
@@ -316,6 +336,61 @@ class UiHost:
         expression = f"window.__codexUsageHistoryUpdate&&window.__codexUsageHistoryUpdate({json.dumps(payload, separators=(',', ':'))})"
         connection.call("Runtime.evaluate", {"expression": expression, "returnByValue": False}, timeout=1.0)
 
+    def _respond_projects(self, connection: CdpConnection, message: dict[str, Any]) -> None:
+        request_id = str(message.get("requestId") or "")[:80]
+        range_name = str(message.get("range") or self.config.get("ui.projects.default_range", "30d"))
+        seconds = {"7d": 7*86400, "30d": 30*86400, "90d": 90*86400, "all": None}.get(range_name, 30*86400)
+        project = self.storage.project_for_session(self.active_thread_id)
+        try:
+            payload = {"requestId": request_id, "range": range_name, "project": project,
+                       "suggestedBasename": self._project_basename(project),
+                       "insights": self.storage.project_insights(project["cwd_hash"], time.time()-seconds if seconds else None) if project else None}
+        except (ValueError, sqlite3.Error) as exc:
+            payload = {"requestId": request_id, "error": str(exc), "project": project}
+        expression = f"window.__codexCompanionProjectsUpdate&&window.__codexCompanionProjectsUpdate({json.dumps(payload, separators=(',', ':'))})"
+        connection.call("Runtime.evaluate", {"expression": expression, "returnByValue": False}, timeout=1.0)
+
+    def _project_basename(self, project: dict[str, Any] | None) -> str | None:
+        if not project or project.get("alias") or not self.active_thread_id:
+            return None
+        row = self.storage.conn.execute(
+            "SELECT transcript_path FROM sessions WHERE session_id=?", (self.active_thread_id,)
+        ).fetchone()
+        path = Path(row["transcript_path"]) if row and row["transcript_path"] else None
+        if not path or not path.is_file():
+            return None
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                for _ in range(20):
+                    line = handle.readline()
+                    if not line:
+                        break
+                    value = json.loads(line)
+                    if value.get("type") != "session_meta":
+                        continue
+                    cwd = (value.get("payload") or {}).get("cwd")
+                    if cwd and hashlib.sha256(str(cwd).encode("utf-8")).hexdigest()[:16] == project["cwd_hash"]:
+                        return Path(str(cwd)).name[:80]
+        except (OSError, json.JSONDecodeError):
+            return None
+        return None
+
+    def _set_project_alias(self, connection: CdpConnection, message: dict[str, Any]) -> None:
+        project = self.storage.project_for_session(self.active_thread_id)
+        try:
+            if not project or str(message.get("cwdHash") or "") != project["cwd_hash"]:
+                raise ValueError("Project does not match the active task")
+            self.storage.set_project_alias(project["cwd_hash"], str(message.get("alias") or ""))
+        except (ValueError, sqlite3.Error) as exc:
+            self._log_error(exc)
+        self._respond_projects(connection, message)
+
+    def _refresh_delay(self) -> float:
+        if not self.config.get("ui.performance.enabled", True):
+            return max(0.1, int(self.config.get("ui.refresh_interval_ms", 200)) / 1000)
+        key = {"active": "active_refresh_ms", "idle": "idle_refresh_ms", "background": "background_refresh_ms"}.get(self.performance_state, "idle_refresh_ms")
+        return max(0.1, int(self.config.get(f"ui.performance.{key}", 1000)) / 1000)
+
     def _summary_payload(self, turn_id: str | None, session_id: str | None = None) -> dict[str, Any]:
         summary = self.storage.summary(session_id, turn_id, int(self.config.get("ui.advisor.baseline_window", 50)))
         summary["view"] = derive(summary, self.config)
@@ -338,6 +413,9 @@ class UiHost:
         elif turn_id and selected_turn.get("ended_at"):
             context.update({"used": None, "used_percent": None, "remaining": None, "remaining_percent": None, "source": "unavailable"})
         summary["view"]["advisor"] = evaluate_advice(summary, summary["view"], self.config)
+        summary["view"]["budget"] = evaluate_budget(
+            summary, self.config, self.transient_budget_features.get(selected_session_id)
+        )
         if selected_turn.get("ended_at") and selected_turn_id and selected_session_id:
             self.storage.save_advice(
                 selected_session_id, selected_turn_id,
@@ -354,6 +432,7 @@ class UiHost:
         value.setdefault("active_session_state", self.active_session_state)
         value.setdefault("active_thread_switched_at", self.active_thread_switched_at)
         value.setdefault("history_focus", self.history_focus)
+        value.setdefault("performance", self.performance_diagnostics)
         temp = self.plugin_data / "ui-status.json.tmp"
         temp.write_text(json.dumps(value, indent=2), encoding="utf-8")
         temp.replace(self.plugin_data / "ui-status.json")

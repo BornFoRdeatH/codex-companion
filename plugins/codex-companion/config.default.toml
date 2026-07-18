@@ -304,6 +304,33 @@ max_visible = 1
 enabled = false
 store_derived_features = true
 
+[ui.command_palette]
+enabled = true
+hotkey = "Ctrl+Shift+."
+
+[ui.budget]
+enabled = true
+advisory_only = true
+transient_prompt_features = true
+per_turn_tokens = 0
+weekly_remaining_reserve_percent = 10
+warn_at_percent = 80
+critical_at_percent = 100
+baseline_window = 50
+min_personal_turns = 10
+
+[ui.projects]
+enabled = true
+default_range = "30d"
+require_alias_confirmation = true
+
+[ui.performance]
+enabled = true
+active_refresh_ms = 200
+idle_refresh_ms = 1000
+background_refresh_ms = 5000
+pause_hidden_footers = true
+
 [ui.widgets]
 directories = ["${PLUGIN_ROOT}/ui/widgets", "${PLUGIN_DATA}/ui/widgets"]
 ordering = []
