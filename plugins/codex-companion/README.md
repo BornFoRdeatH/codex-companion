@@ -36,7 +36,7 @@ produce one final handoff answer. Only that explicitly marked final answer is re
 in-memory preview; all other message content remains unavailable to Companion.
 
 The preview validates Goal, Current state, Completed work, Decisions and constraints, Changed files,
-Verification, Open issues, and Next steps, warning about missing sections or truncation without
+Verification, Delivery and continuity, Open issues, and Next steps, warning about missing sections or truncation without
 blocking copy. On request, the host adds only `git status --porcelain` paths and `git diff --stat`
 output from the verified project directory; it never reads diff contents or command history.
 **Open new task** uses the exact renderer adapter and keeps the preview open until composer prefill
@@ -48,7 +48,9 @@ Handoff text exists only in renderer memory or the user clipboard. SQLite schema
 technical lifecycle metadata; it has no prompt, summary, Markdown, or diff-content fields. Reloading
 the renderer expires unfinished requests, and completed/expired markers are automatically removed.
 
-Run `handoff doctor` to inspect exact adapter, composer, native navigation, clipboard, preview,
+The Delivery and continuity section is generic: it carries produced artifacts, publication or
+installation status, external identifiers/links, completed delivery actions, and remaining manual
+acceptance or restart steps. Git details are included only when relevant. Run `handoff doctor` to inspect exact adapter, composer, native navigation, clipboard, preview,
 fallback, and metadata-only storage checks. The doctor reports technical statuses only.
 
 ## Native History Focus

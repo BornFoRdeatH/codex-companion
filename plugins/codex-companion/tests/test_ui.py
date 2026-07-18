@@ -234,6 +234,7 @@ class UiTests(unittest.TestCase):
         self.assertIn("prefillTimeout", source)
         self.assertIn("continue-handoff", source)
         self.assertIn("checkpoint", source)
+        self.assertIn("Delivery and continuity", source)
         self.assertIn("shouldClampScroll", source)
         self.assertIn('focusState:"pending_boundary"', source)
         self.assertIn('scroller.style.overflowAnchor="none"', source)
