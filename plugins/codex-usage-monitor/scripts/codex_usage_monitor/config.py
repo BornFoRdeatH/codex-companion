@@ -93,6 +93,14 @@ def _validate(data: dict[str, Any]) -> list[str]:
     if data["ui"]["history"]["max_turns"] < 1:
         warnings.append("ui.history.max_turns must be positive; using 500")
         data["ui"]["history"]["max_turns"] = 500
+    virtualization = data["ui"]["chat_virtualization"]
+    for key in ("visible_turns", "load_batch"):
+        if not 5 <= virtualization[key] <= 100:
+            warnings.append(f"ui.chat_virtualization.{key} must be between 5 and 100; using 10")
+            virtualization[key] = 10
+    if virtualization["unknown_version_policy"] not in {"probe", "disable"}:
+        warnings.append("Invalid ui.chat_virtualization.unknown_version_policy; using probe")
+        virtualization["unknown_version_policy"] = "probe"
     advisor = data["ui"]["advisor"]
     if advisor["cooldown_minutes"] < 0:
         warnings.append("ui.advisor.cooldown_minutes must be non-negative; using 30")
@@ -143,6 +151,18 @@ def load_config(plugin_root: Path, plugin_data: Path, create: bool = True) -> Lo
         except (OSError, tomllib.TOMLDecodeError) as exc:
             raise ConfigError(f"Cannot read {config_path}: {exc}") from exc
     data, warnings = _merge(defaults, override)
+    override_ui = override.get("ui") if isinstance(override.get("ui"), dict) else {}
+    if create and "chat_virtualization" not in override_ui:
+        with config_path.open("a", encoding="utf-8", newline="\n") as handle:
+            handle.write(
+                "\n[ui.chat_virtualization]\n"
+                "enabled = true\n"
+                "visible_turns = 10\n"
+                "load_batch = 10\n"
+                "reset_on_thread_switch = true\n"
+                'unknown_version_policy = "probe"\n'
+            )
+        warnings.append("Added ui.chat_virtualization defaults to config.toml")
     _migrate_legacy_rate_labels(data)
     warnings.extend(_validate(data))
     def expand(value: str) -> str:

@@ -20,7 +20,11 @@
       "package_versions": ["26.715.4045.0"],
       "app_asar_sha256": ["4F81FE8CFADD0ECD1D55A46F4B101B1DB70ABBB372B63A0120218B1D868008A3"],
       "fiber_item_types": ["agentMessage"],
-      "phases": ["commentary", "final_answer"]
+      "phases": ["commentary", "final_answer"],
+      "turn_wrapper_contract": {
+        "identity": ["conversationId", "turnId"],
+        "completion": "mcpTurn.status"
+      }
     }
   ]
 }

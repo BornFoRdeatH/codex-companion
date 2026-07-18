@@ -1,4 +1,4 @@
-# Codex Usage Monitor 0.4.0
+# Codex Usage Monitor 0.5.0
 
 Local Codex token, context, quota, operation, subagent, and account telemetry. Version 0.2 adds an
 optional runtime UI: a persistent resizable dock plus compact telemetry footers below commentary
@@ -7,6 +7,31 @@ and final answers on explicitly supported Codex desktop builds.
 The UI is injected in memory over a random loopback Chromium DevTools port. It does not modify
 Codex files, `app.asar`, package signatures, or model context. Hooks collect telemetry but are not
 used as the display surface while `[ui]` is enabled.
+
+## Chat history virtualization
+
+Long chats use privacy-safe soft virtualization by default. The runtime keeps the latest 10 complete
+turns in layout and paint, while older complete turn wrappers remain mounted in React but use
+`display: none` and containment markers. A native-style **Show previous 10** button reveals history
+in batches without changing the current scroll position. Streaming turns are never hidden.
+
+Turn wrappers are identified only from structural `conversationId`, `turnId`, and completion state;
+prompt, assistant, and tool contents are not read. The window resets after reload or task switch.
+Unknown renderer builds must first present at least three unique turns under the same structural
+parent; if this contract is not confirmed, every wrapper is restored and virtualization stays off.
+
+```toml
+[ui.chat_virtualization]
+enabled = true
+visible_turns = 10
+load_batch = 10
+reset_on_thread_switch = true
+unknown_version_policy = "probe"
+```
+
+`visible_turns` and `load_batch` accept values from 5 through 100. Setting `enabled = false`
+immediately restores Codex's standard layout. Diagnostics contain only thread ID, compatibility,
+and visible/hidden turn counts in `ui-status.json`.
 
 ## Session isolation
 

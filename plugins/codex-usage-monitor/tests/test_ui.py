@@ -94,6 +94,15 @@ class UiTests(unittest.TestCase):
         )
         self.assertEqual(matched["fiber_item_types"], ["agentMessage"])
 
+        current = match_adapter(
+            {
+                "app_asar_sha256": "4F81FE8CFADD0ECD1D55A46F4B101B1DB70ABBB372B63A0120218B1D868008A3",
+                "package_version": "26.715.4045.0",
+            },
+            adapters,
+        )
+        self.assertEqual(current["turn_wrapper_contract"]["identity"], ["conversationId", "turnId"])
+
     def test_widget_traversal_and_scripted_footer_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -189,6 +198,13 @@ class UiTests(unittest.TestCase):
         self.assertIn("data-codex-usage-guard-badge", source)
         self.assertIn("data-codex-usage-advisor-badge", source)
         self.assertIn("advisorConfig", source)
+        self.assertIn("data-codex-usage-turn-hidden", source)
+        self.assertIn("data-codex-usage-history-gate", source)
+        self.assertIn("turn_wrapper_contract", source)
+        self.assertIn("record.addedNodes", source)
+        self.assertIn("turnOriginalStyles:new WeakMap()", source)
+        self.assertIn('type:"history_virtualization"', source)
+        self.assertIn("mcpTurn", source)
         self.assertIn("row?.phase===\"final_answer\"", source)
         self.assertIn("Порада з оптимізації", source)
         self.assertIn("nativeContextPercent", source)

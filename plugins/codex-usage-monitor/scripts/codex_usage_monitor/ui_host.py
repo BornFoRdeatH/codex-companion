@@ -68,6 +68,9 @@ class UiHost:
         self.active_thread_id: str | None = None
         self.active_session_state = "pending"
         self.active_thread_switched_at: float | None = None
+        self.history_virtualization: dict[str, Any] = {
+            "thread_id": None, "compatible": None, "total_turns": 0, "visible_turns": 0, "hidden_turns": 0,
+        }
         signal.signal(signal.SIGINT, lambda *_: setattr(self, "stop", True))
         if hasattr(signal, "SIGTERM"):
             signal.signal(signal.SIGTERM, lambda *_: setattr(self, "stop", True))
@@ -93,7 +96,8 @@ class UiHost:
             self._write_status(state="unsupported", pid=process.pid, port=port, fingerprint=fp)
             return 3
         self._write_status(state="starting", pid=process.pid, port=port, fingerprint=fp, adapter=adapter)
-        runtime = (self.plugin_root / "ui" / "runtime.js").read_text(encoding="utf-8")
+        virtualization = (self.plugin_root / "ui" / "history_virtualization.js").read_text(encoding="utf-8")
+        runtime = virtualization + "\n" + (self.plugin_root / "ui" / "runtime.js").read_text(encoding="utf-8")
         last_target = None
         connection: CdpConnection | None = None
         while not self.stop and process.poll() is None:
@@ -186,6 +190,7 @@ class UiHost:
             "guard": self.config.get("ui.guard", {}),
             "historyConfig": self.config.get("ui.history", {}),
             "advisorConfig": self.config.get("ui.advisor", {}),
+            "chatVirtualization": self.config.get("ui.chat_virtualization", {}),
         }
 
     def _push_snapshot(self, connection: CdpConnection) -> None:
@@ -246,6 +251,21 @@ class UiHost:
                 self.runtime_compatibility = str(message.get("evidence") or "structural")
             elif message.get("type") == "compatibility" and message.get("compatible") is False:
                 self.runtime_compatibility = str(message.get("evidence") or "incompatible")
+            elif message.get("type") == "history_virtualization":
+                raw_thread = message.get("thread_id")
+                thread_id = str(raw_thread)[:128] if raw_thread else None
+                keys = ("total_turns", "visible_turns", "hidden_turns")
+                values = [message.get(key) for key in keys]
+                valid_counts = all(
+                    isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value <= 1_000_000
+                    for value in values
+                )
+                if thread_id == self.active_thread_id and isinstance(message.get("compatible"), bool) and valid_counts:
+                    self.history_virtualization = {
+                        "thread_id": thread_id,
+                        "compatible": message["compatible"],
+                        **{key: int(value) for key, value in zip(keys, values)},
+                    }
 
     def _respond_history(self, connection: CdpConnection, message: dict[str, Any]) -> None:
         request_id = str(message.get("requestId") or "")[:80]
@@ -301,6 +321,7 @@ class UiHost:
         value.setdefault("active_thread_id", self.active_thread_id)
         value.setdefault("active_session_state", self.active_session_state)
         value.setdefault("active_thread_switched_at", self.active_thread_switched_at)
+        value.setdefault("history_virtualization", self.history_virtualization)
         temp = self.plugin_data / "ui-status.json.tmp"
         temp.write_text(json.dumps(value, indent=2), encoding="utf-8")
         temp.replace(self.plugin_data / "ui-status.json")
