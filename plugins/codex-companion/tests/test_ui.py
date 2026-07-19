@@ -342,6 +342,11 @@ class UiTests(unittest.TestCase):
         for field in ("focus_state", "boundary_turn", "boundary_scroll_top", "scroll_direction", "guard_active"):
             self.assertIn(field, host_source)
 
+    def test_ui_host_reports_codex_exit_before_attach(self) -> None:
+        source = (Path(__file__).resolve().parents[1] / "scripts" / "codex_usage_monitor" / "ui_host.py").read_text(encoding="utf-8")
+        self.assertIn("Codex exited before renderer/CDP attach", source)
+        self.assertIn('self._write_status(state="error"', source)
+
     def test_builtin_widget_uses_localized_placeholders(self) -> None:
         source = (
             Path(__file__).resolve().parents[1] / "ui" / "widgets" / "usage-summary" / "widget.html"

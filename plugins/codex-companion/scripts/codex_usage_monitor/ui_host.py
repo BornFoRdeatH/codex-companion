@@ -117,7 +117,16 @@ class UiHost:
         attach_deadline = time.monotonic() + 15.0
         last_target = None
         connection: CdpConnection | None = None
-        while not self.stop and process.poll() is None:
+        attached_once = False
+        while not self.stop:
+            exit_code = process.poll()
+            if exit_code is not None:
+                if not attached_once:
+                    message = f"Codex exited before renderer/CDP attach (exit code {exit_code})"
+                    self._write_status(state="error", pid=process.pid, port=port, fingerprint=fp, error=message)
+                    self._log_error(RuntimeError(message))
+                    return 4
+                break
             try:
                 target = _primary_target(discover_targets(port))
                 if not target:
@@ -136,6 +145,7 @@ class UiHost:
                     connection = CdpConnection(str(target["webSocketDebuggerUrl"]))
                     self._attach(connection, runtime, supported, adapter, adapters)
                     last_target = target_id
+                    attached_once = True
                     attach_deadline = time.monotonic() + 15.0
                     self._write_status(state="attached", pid=process.pid, port=port, fingerprint=fp, adapter=adapter)
                 self._drain_events(connection)
