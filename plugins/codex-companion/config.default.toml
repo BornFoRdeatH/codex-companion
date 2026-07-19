@@ -353,6 +353,9 @@ required_sections = ["Goal", "Current state", "Completed work", "Decisions and c
 checkpoint_enabled = true
 
 [ui.widgets]
+enabled = true
+manager_enabled = true
+allow_local = true
 directories = ["${PLUGIN_ROOT}/ui/widgets", "${PLUGIN_DATA}/ui/widgets"]
 ordering = []
 hot_reload = true

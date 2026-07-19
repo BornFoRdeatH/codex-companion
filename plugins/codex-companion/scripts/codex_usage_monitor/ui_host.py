@@ -15,7 +15,7 @@ from .cdp import CdpConnection, CdpError, discover_targets
 from .config import LoadedConfig
 from .storage import Storage
 from .ui_launcher import discover_codex_app, launch_codex, reserve_loopback_port
-from .widgets import load_widgets, markdown_to_html, sanitize_html
+from .widgets import load_widget_report, markdown_to_html, sanitize_html
 from .render import derive
 from .advisor import evaluate as evaluate_advice
 from .budget import evaluate as evaluate_budget, transient_features
@@ -114,12 +114,19 @@ class UiHost:
         self._write_status(state="starting", pid=process.pid, port=port, fingerprint=fp, adapter=adapter)
         history_focus = (self.plugin_root / "ui" / "history_focus.js").read_text(encoding="utf-8")
         runtime = history_focus + "\n" + (self.plugin_root / "ui" / "runtime.js").read_text(encoding="utf-8")
+        attach_deadline = time.monotonic() + 15.0
         last_target = None
         connection: CdpConnection | None = None
         while not self.stop and process.poll() is None:
             try:
                 target = _primary_target(discover_targets(port))
                 if not target:
+                    if time.monotonic() >= attach_deadline:
+                        self._write_status(state="error", pid=process.pid, port=port, fingerprint=fp,
+                                           error="Timed out waiting for Codex renderer/CDP target")
+                        if process.poll() is None:
+                            process.terminate()
+                        return 4
                     time.sleep(0.1)
                     continue
                 target_id = target.get("id")
@@ -129,6 +136,7 @@ class UiHost:
                     connection = CdpConnection(str(target["webSocketDebuggerUrl"]))
                     self._attach(connection, runtime, supported, adapter, adapters)
                     last_target = target_id
+                    attach_deadline = time.monotonic() + 15.0
                     self._write_status(state="attached", pid=process.pid, port=port, fingerprint=fp, adapter=adapter)
                 self._drain_events(connection)
                 self._push_snapshot(connection)
@@ -177,9 +185,11 @@ class UiHost:
     def _boot_payload(
         self, supported: bool, adapter: dict[str, Any] | None, adapters: list[dict[str, Any]]
     ) -> dict[str, Any]:
-        widgets = load_widgets(
-            list(self.config.get("ui.widgets.directories", [])), bool(self.config.get("ui.security.scripts_enabled", True))
+        widget_report = load_widget_report(
+            list(self.config.get("ui.widgets.directories", [])) if self.config.get("ui.widgets.enabled", True) else [],
+            bool(self.config.get("ui.security.scripts_enabled", True)),
         )
+        widgets = widget_report["widgets"]
         configured_order = list(self.config.get("ui.widgets.ordering", []))
         order_index = {widget_id: index for index, widget_id in enumerate(configured_order)}
         widgets.sort(key=lambda widget: (order_index.get(widget["id"], len(order_index)), widget["order"]))
@@ -204,6 +214,7 @@ class UiHost:
             "footerPhases": self.config.get("ui.footer_phases", ["commentary", "final_answer"]),
             "locale": "auto" if self.config.get("ui.auto_locale", True) else self.config.get("locale.language", "en"),
             "widgets": widgets,
+            "widgetErrors": widget_report["errors"],
             "security": self.config.get("ui.security", {}),
             "guard": self.config.get("ui.guard", {}),
             "historyConfig": self.config.get("ui.history", {}),
@@ -255,10 +266,15 @@ class UiHost:
                 if action in {"checkpoint", "handoff", "new_task"}:
                     self.budget_diagnostics = {"last_action": action, "last_action_at": time.time()}
                     self._write_status(state="budget_action")
-            elif message.get("type") in {"recommendation_action", "recommendation_dismissed", "task_review_opened"}:
+            elif message.get("type") in {
+                "recommendation_action", "recommendation_dismissed", "task_review_opened",
+                "action_requested", "action_ready", "action_completed", "action_failed",
+                "action_registered", "widget_registered", "widget_error", "layout_changed",
+                "runtime_reconnected", "launcher_state_changed",
+            }:
                 event_type = str(message.get("type"))
                 event = {"type": event_type, "at": time.time()}
-                for key in ("code", "action"):
+                for key in ("code", "action", "widgetId", "state", "placement", "reason"):
                     value = message.get(key)
                     if isinstance(value, str) and value and len(value) <= 80:
                         event[key] = value

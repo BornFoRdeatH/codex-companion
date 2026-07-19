@@ -1,4 +1,4 @@
-# Codex Companion 1.2.1
+# Codex Companion 1.3.0
 
 The UI uses a compact live dock plus a responsive Control Center with Overview,
 Context Optimizer, Usage History, Handoff, Projects, Diagnostics, and Settings
@@ -261,14 +261,29 @@ store_derived_features = true
 are the only UI dictionaries. Every other locale, including Russian, falls back to English.
 Set `auto_locale = false` and `locale.language = "uk"` or `"en"` for an explicit override.
 
-## Widgets
+## Quick Actions and extension platform
+
+Checkpoint, Handoff, Review, and New task are exposed through one Action Registry. The same
+validated action can appear in the composer footer, dock, command palette, Control Center, or a
+widget action area. Actions are explicit-click only and report a technical lifecycle from request
+through completion or failure.
+
+The composer footer accepts controls through `registerFooterControl`. Widgets may register safe
+actions and controls through the sandbox SDK; the host validates IDs, placements, permissions, and
+payload sizes before registration. Built-in Task Cockpit, Budget Optimizer, and Handoff Actions are
+managed alongside local widgets in Control Center Settings. Enablement and placement are stored in
+renderer-local settings, not SQLite.
+
+### Widgets
 
 Widget directories are configured under `[ui.widgets]`:
 
 - built in: `${PLUGIN_ROOT}/ui/widgets`;
 - personal: `${PLUGIN_DATA}/ui/widgets`.
 
-Each widget lives in its own directory and contains `manifest.json` schema v1:
+Each widget lives in its own directory and contains `manifest.json` schema v1 or v2. Existing v1
+widgets remain supported. Schema v2 additionally supports `composer_footer`, `control_center`,
+`actions`, `enabled_by_default`, and the sandboxed widget action API:
 
 ```json
 {
@@ -288,8 +303,14 @@ Each widget lives in its own directory and contains `manifest.json` schema v1:
 Supported content types are `markdown`, sanitized `html`/CSS, and sandboxed `javascript`.
 Scripted widgets run in iframes without `allow-same-origin`; CSP denies network, navigation,
 popups, forms, downloads, and filesystem access. Their capability API is limited to
-`getSnapshot`, `subscribeTelemetry`, `getTheme`, `requestResize`, and `openSettings`.
-`message_footer` widgets must be declarative and share the single footer renderer.
+`getSnapshot`, `subscribeTelemetry`, `getTheme`, `requestResize`, `openSettings`, `registerAction`,
+`registerFooterControl`, `openPanel`, and `showNotice`. Widgets never receive prompt, assistant,
+tool, diff, or filename contents. `message_footer` and `composer_footer` widgets must be declarative.
+
+The Control Center Settings tab manages built-in features and local widgets: enablement, placement,
+ordering, and resettable local layout state. Invalid manifests are reported as unavailable widgets
+and do not prevent other widgets or the main dock from loading. Quick Actions for Checkpoint and
+Handoff are available in both the composer footer and dock; every action requires an explicit click.
 
 ## Requirements and data sources
 
@@ -313,7 +334,7 @@ transcript, and read/write SQLite snapshots. Failed App Server starts use a five
 
 On first use, `config.default.toml` is copied to `%PLUGIN_DATA%/config.toml`. When the CLI is run
 outside a hook, it resolves the active marketplace data directory under `~/.codex/plugins/data`.
-Version 1.2.1 keeps public config `schema_version = 1`, uses internal SQLite schema v6, and adds
+Version 1.3.0 keeps public config `schema_version = 1`, uses internal SQLite schema v6, and adds
 `[ui.advisor]` plus opt-in `[ui.advisor.prompt_coach]`. Existing configs inherit
 new defaults. Unknown keys warn and invalid values fall back safely.
 

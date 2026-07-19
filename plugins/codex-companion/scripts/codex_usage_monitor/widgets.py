@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import Any
 
 
-PLACEMENTS = {"right_dock", "left_dock", "bottom_dock", "floating", "message_footer", "modal"}
+PLACEMENTS = {"right_dock", "left_dock", "bottom_dock", "floating", "message_footer", "composer_footer", "control_center", "modal"}
 CONTENT_TYPES = {"markdown", "html", "javascript"}
+PERMISSIONS = {"telemetry", "theme", "resize", "settings", "actions"}
 
 
 class WidgetError(ValueError):
@@ -17,7 +18,12 @@ class WidgetError(ValueError):
 
 
 def load_widgets(directories: list[str], scripts_enabled: bool = True) -> list[dict[str, Any]]:
+    return load_widget_report(directories, scripts_enabled)["widgets"]
+
+
+def load_widget_report(directories: list[str], scripts_enabled: bool = True) -> dict[str, list[Any]]:
     widgets: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
     seen: set[str] = set()
     for directory in directories:
         root = Path(directory).resolve()
@@ -26,12 +32,13 @@ def load_widgets(directories: list[str], scripts_enabled: bool = True) -> list[d
         for manifest_path in root.glob("*/manifest.json"):
             try:
                 widget = validate_manifest(manifest_path, scripts_enabled)
-            except (OSError, json.JSONDecodeError, WidgetError):
+            except (OSError, json.JSONDecodeError, WidgetError) as exc:
+                errors.append({"widget": manifest_path.parent.name[:80], "error": str(exc)[:160]})
                 continue
             if widget["id"] not in seen:
                 seen.add(widget["id"])
                 widgets.append(widget)
-    return sorted(widgets, key=lambda value: (value["order"], value["id"]))
+    return {"widgets": sorted(widgets, key=lambda value: (value["order"], value["id"])), "errors": errors[:50]}
 
 
 def validate_manifest(path: Path, scripts_enabled: bool = True) -> dict[str, Any]:
@@ -40,7 +47,8 @@ def validate_manifest(path: Path, scripts_enabled: bool = True) -> dict[str, Any
     required = {"id", "name", "entry", "content_type", "placements", "default_placement"}
     if not isinstance(data, dict) or not required.issubset(data):
         raise WidgetError("Missing widget manifest fields")
-    if data.get("schema_version", 1) != 1:
+    schema_version = int(data.get("schema_version", 1))
+    if schema_version not in {1, 2}:
         raise WidgetError("Unsupported widget schema")
     content_type = data["content_type"]
     if content_type not in CONTENT_TYPES or (content_type == "javascript" and not scripts_enabled):
@@ -57,16 +65,21 @@ def validate_manifest(path: Path, scripts_enabled: bool = True) -> dict[str, Any
         raise WidgetError("Widget entry escapes its directory") from exc
     if not entry.is_file():
         raise WidgetError("Widget entry does not exist")
-    if "message_footer" in placements and content_type == "javascript":
+    if ("message_footer" in placements or "composer_footer" in placements) and content_type == "javascript":
         raise WidgetError("Message footer widgets must be declarative")
+    actions = data.get("actions", [])
+    if schema_version >= 2 and (not isinstance(actions, list) or not all(isinstance(value, str) and value for value in actions)):
+        raise WidgetError("Widget actions must be a string list")
     result = {
-        "schema_version": 1,
+        "schema_version": schema_version,
         "id": str(data["id"]),
         "name": str(data["name"]),
         "content_type": content_type,
         "placements": placements,
         "default_placement": data["default_placement"],
-        "permissions": [value for value in data.get("permissions", []) if value in {"telemetry", "theme", "resize", "settings"}],
+        "permissions": [value for value in data.get("permissions", []) if value in PERMISSIONS],
+        "actions": [str(value) for value in actions if isinstance(value, str)][:20],
+        "enabled_by_default": bool(data.get("enabled_by_default", True)),
         "order": int(data.get("order", 100)),
         "size": data.get("size", {"width": 320, "height": 180}),
         "source": entry.read_text(encoding="utf-8"),

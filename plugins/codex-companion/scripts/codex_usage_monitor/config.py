@@ -173,6 +173,16 @@ def _validate(data: dict[str, Any]) -> list[str]:
     if not isinstance(sections, list) or not all(isinstance(value, str) and value.strip() for value in sections):
         warnings.append("ui.handoff.required_sections must be a non-empty string list; using defaults")
         handoff["required_sections"] = ["Goal", "Current state", "Completed work", "Decisions and constraints", "Changed files", "Verification", "Open issues", "Next steps"]
+    widgets = data["ui"].get("widgets", {})
+    if not isinstance(widgets.get("directories"), list) or not all(isinstance(value, str) and value.strip() for value in widgets["directories"]):
+        warnings.append("ui.widgets.directories must be a string list; using plugin and data directories")
+        widgets["directories"] = ["${PLUGIN_ROOT}/ui/widgets", "${PLUGIN_DATA}/ui/widgets"]
+    if not isinstance(widgets.get("ordering", []), list) or not all(isinstance(value, str) for value in widgets.get("ordering", [])):
+        warnings.append("ui.widgets.ordering must be a string list; using empty ordering")
+        widgets["ordering"] = []
+    widgets["enabled"] = bool(widgets.get("enabled", True))
+    widgets["manager_enabled"] = bool(widgets.get("manager_enabled", True))
+    widgets["allow_local"] = bool(widgets.get("allow_local", True))
     for key in ("progress_bar_width", "max_width", "max_lines"):
         if data["display"][key] < 1:
             warnings.append(f"display.{key} must be positive; using default")

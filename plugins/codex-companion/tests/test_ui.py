@@ -13,10 +13,10 @@ from codex_usage_monitor.cdp import CdpError, CdpConnection
 from codex_usage_monitor.storage import Storage
 from codex_usage_monitor.ui_host import match_adapter
 from codex_usage_monitor.ui_launcher import (
-    _bootstrap_source, _plugin_family, _user_visible_path, discover_codex_app, reserve_loopback_port,
+    _bootstrap_source, _plugin_family, _user_visible_path, discover_codex_app, launch_codex, reserve_loopback_port,
     legacy_launcher_paths, launcher_paths, restart_existing_codex,
 )
-from codex_usage_monitor.widgets import WidgetError, load_widgets, markdown_to_html, sanitize_html, validate_manifest
+from codex_usage_monitor.widgets import WidgetError, load_widget_report, load_widgets, markdown_to_html, sanitize_html, validate_manifest
 
 
 class UiTests(unittest.TestCase):
@@ -70,6 +70,15 @@ class UiTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("--data-dir", result.stdout)
             self.assertIn("plugin data|ui|launch|--smoke", result.stdout)
+
+    @unittest.skipUnless(os.name == "nt", "Windows launcher flags")
+    def test_launcher_uses_no_window_process_creation(self) -> None:
+        executable = Path(r"C:\Program Files\Codex\ChatGPT.exe")
+        with mock.patch("codex_usage_monitor.ui_launcher.restart_existing_codex"), \
+             mock.patch("codex_usage_monitor.ui_launcher.subprocess.Popen") as popen:
+            launch_codex(executable, 43123)
+            flags = popen.call_args.kwargs["creationflags"]
+            self.assertTrue(flags & subprocess.CREATE_NO_WINDOW)
 
     @unittest.skipUnless(os.name == "nt", "Windows process restart")
     def test_restart_existing_codex_terminates_only_root_process_tree(self) -> None:
@@ -131,6 +140,37 @@ class UiTests(unittest.TestCase):
             path.write_text(json.dumps(manifest), encoding="utf-8")
             with self.assertRaises(WidgetError):
                 validate_manifest(path)
+
+    def test_widget_schema_v2_supports_composer_and_control_center(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            widget = Path(directory) / "context-runway"
+            widget.mkdir()
+            (widget / "widget.html").write_text("<p>safe</p>", encoding="utf-8")
+            manifest = {
+                "schema_version": 2, "id": "context-runway", "name": "Context Runway",
+                "entry": "widget.html", "content_type": "html",
+                "placements": ["bottom_dock", "composer_footer", "control_center"],
+                "default_placement": "bottom_dock", "actions": ["open_cockpit"],
+                "permissions": ["telemetry", "theme", "actions", "unsafe"],
+                "enabled_by_default": False,
+            }
+            (widget / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            result = validate_manifest(widget / "manifest.json")
+            self.assertEqual(result["schema_version"], 2)
+            self.assertEqual(result["actions"], ["open_cockpit"])
+            self.assertEqual(result["permissions"], ["telemetry", "theme", "actions"])
+            self.assertFalse(result["enabled_by_default"])
+
+    def test_widget_report_is_safe_and_surfaces_invalid_manifests(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bad = root / "bad"
+            bad.mkdir()
+            (bad / "manifest.json").write_text("{\"schema_version\": 2}", encoding="utf-8")
+            report = load_widget_report([str(root)])
+            self.assertEqual(report["widgets"], [])
+            self.assertEqual(len(report["errors"]), 1)
+            self.assertNotIn("prompt", str(report))
 
     def test_html_markdown_security(self) -> None:
         value = sanitize_html('<script>steal()</script><style>@import "https://x"; .x{background:url(https://x)}</style><p onclick="x">safe</p>')
@@ -232,6 +272,19 @@ class UiTests(unittest.TestCase):
         self.assertIn("task_review_opened", source)
         self.assertIn("advisory_only", source)
         self.assertIn("taskThreadId", source)
+        self.assertIn("registerAction", source)
+        self.assertIn("registerFooterControl", source)
+        self.assertIn("invokeAction", source)
+        self.assertIn("action_requested", source)
+        self.assertIn("action_completed", source)
+        self.assertIn("data-codex-companion-footer-actions", source)
+        self.assertIn("widgetSettings", source)
+        self.assertIn("codexCompanionFeatureSettings", source)
+        self.assertIn("widgetErrors", source)
+        self.assertIn("allow-scripts", source)
+        self.assertIn("openPanel", source)
+        self.assertIn("CREATE_NO_WINDOW", (Path(__file__).resolve().parents[1] / "scripts" / "codex_usage_monitor" / "ui_launcher.py").read_text(encoding="utf-8"))
+        self.assertIn("Timed out waiting for Codex renderer/CDP target", (Path(__file__).resolve().parents[1] / "scripts" / "codex_usage_monitor" / "ui_host.py").read_text(encoding="utf-8"))
         self.assertIn('id="controlCenter"', source)
         self.assertIn('setAttribute("role","dialog")', source)
         self.assertIn('aria-selected', source)
