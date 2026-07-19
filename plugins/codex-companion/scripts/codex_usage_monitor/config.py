@@ -183,6 +183,7 @@ def _validate(data: dict[str, Any]) -> list[str]:
     widgets["enabled"] = bool(widgets.get("enabled", True))
     widgets["manager_enabled"] = bool(widgets.get("manager_enabled", True))
     widgets["allow_local"] = bool(widgets.get("allow_local", True))
+    widgets["enabled_by_default"] = bool(widgets.get("enabled_by_default", False))
     for key in ("progress_bar_width", "max_width", "max_lines"):
         if data["display"][key] < 1:
             warnings.append(f"display.{key} must be positive; using default")

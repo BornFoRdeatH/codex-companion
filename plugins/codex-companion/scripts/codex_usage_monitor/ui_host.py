@@ -276,6 +276,7 @@ class UiHost:
             "footerPhases": self.config.get("ui.footer_phases", ["commentary", "final_answer"]),
             "locale": "auto" if self.config.get("ui.auto_locale", True) else self.config.get("locale.language", "en"),
             "widgets": widgets,
+            "widgetsEnabledByDefault": bool(self.config.get("ui.widgets.enabled_by_default", False)),
             "widgetErrors": widget_report["errors"],
             "security": self.config.get("ui.security", {}),
             "guard": self.config.get("ui.guard", {}),

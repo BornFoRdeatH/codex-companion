@@ -1,4 +1,4 @@
-# Codex Companion 1.3.6
+# Codex Companion 1.3.7
 
 The UI uses a compact live dock plus a responsive Control Center with Overview,
 Context Optimizer, Usage History, Handoff, Projects, Diagnostics, and Settings
@@ -267,9 +267,10 @@ Set `auto_locale = false` and `locale.language = "uk"` or `"en"` for an explicit
 
 ## Quick Actions and extension platform
 
-The 1.3 Extension Platform renderer controls are paused in 1.3.6 while the Codex renderer freeze
-regression is isolated. Checkpoint, Handoff, Review, and New task remain available from the stable
-Task Cockpit and Control Center surfaces. Actions are explicit-click only and never press Send.
+The 1.3 Extension Platform renderer controls are available but disabled by default in 1.3.7.
+Checkpoint, Handoff, Review, and New task remain available from the stable Task Cockpit and Control
+Center surfaces. Enabling `handoff-actions`, `task-cockpit`, or `budget-optimizer` in Settings adds
+the corresponding quick-action surfaces. Actions are explicit-click only and never press Send.
 
 ### Widgets
 
@@ -279,8 +280,8 @@ Widget directories are configured under `[ui.widgets]`:
 - personal: `${PLUGIN_DATA}/ui/widgets`.
 
 Each widget lives in its own directory and contains `manifest.json` schema v1 or v2. Existing v1
-widgets remain supported. Schema v2 manifests are validated by the host, but the 1.3 action SDK
-surface is paused in the renderer-safe 1.3.6 build:
+widgets remain supported. All local and built-in widgets start disabled unless
+`ui.widgets.enabled_by_default = true` is set or the user enables them in Settings:
 
 ```json
 {
@@ -299,13 +300,15 @@ surface is paused in the renderer-safe 1.3.6 build:
 
 Supported content types are `markdown`, sanitized `html`/CSS, and sandboxed `javascript`.
 Scripted widgets run in iframes without `allow-same-origin`; CSP denies network, navigation,
-popups, forms, downloads, and filesystem access. The stable runtime supports snapshot, telemetry,
-theme, resize, and settings messages only. Widgets never receive prompt, assistant, tool, diff, or
-filename contents. `message_footer` and `composer_footer` widgets must be declarative.
+popups, forms, downloads, and filesystem access. Their capability API is limited to `getSnapshot`,
+`subscribeTelemetry`, `getTheme`, `requestResize`, `openSettings`, `registerAction`,
+`registerFooterControl`, `openPanel`, and `showNotice`. Widgets never receive prompt, assistant,
+tool, diff, or filename contents. `message_footer` and `composer_footer` widgets must be
+declarative.
 
 Invalid manifests are reported as unavailable widgets and do not prevent the main dock from
-loading. Quick Actions in the composer footer and dock will return after the Extension Platform is
-re-enabled in a separate stability release.
+loading. Quick Actions in the composer footer and dock appear only after their feature toggle is
+enabled.
 
 ## Requirements and data sources
 
@@ -329,13 +332,13 @@ transcript, and read/write SQLite snapshots. Failed App Server starts use a five
 
 On first use, `config.default.toml` is copied to `%PLUGIN_DATA%/config.toml`. When the CLI is run
 outside a hook, it resolves the active marketplace data directory under `~/.codex/plugins/data`.
-Version 1.3.6 keeps public config `schema_version = 1`, uses internal SQLite schema v6, and adds
+Version 1.3.7 keeps public config `schema_version = 1`, uses internal SQLite schema v6, and adds
 `[ui.advisor]` plus opt-in `[ui.advisor.prompt_coach]`. Existing configs inherit
 new defaults. Unknown keys warn and invalid values fall back safely.
 
-Version 1.3.6 temporarily rolls the renderer runtime surface back to the stable 1.2.1
-implementation while the 1.3 Extension Platform freeze regression is isolated. Task Cockpit,
-Control Center, budgets, handoff, history focus, and launcher diagnostics remain available.
+Version 1.3.7 restores the Extension Platform runtime with widgets and extension controls disabled
+by default. Settings uses a fresh local feature-toggle namespace, so previous 1.3.x toggles do not
+re-enable widgets accidentally. Enable one widget or feature at a time to isolate renderer issues.
 
 The privacy invariants `never_store_auth_tokens`, `never_store_prompt_contents`,
 `page_dom_denied`, `message_contents_denied`, and `network_denied` cannot be disabled. Raw prompts,

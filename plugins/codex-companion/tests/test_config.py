@@ -51,6 +51,7 @@ class ConfigTests(unittest.TestCase):
             self.assertTrue(loaded.get("ui.widgets.enabled"))
             self.assertTrue(loaded.get("ui.widgets.manager_enabled"))
             self.assertTrue(loaded.get("ui.widgets.allow_local"))
+            self.assertFalse(loaded.get("ui.widgets.enabled_by_default"))
         self.assertTrue(loaded.get("ui.handoff.enabled"))
         self.assertEqual(loaded.get("ui.handoff.generation"), "marked_current_turn")
         self.assertEqual(loaded.get("ui.handoff.max_summary_chars"), 20000)

@@ -356,6 +356,7 @@ checkpoint_enabled = true
 enabled = true
 manager_enabled = true
 allow_local = true
+enabled_by_default = false
 directories = ["${PLUGIN_ROOT}/ui/widgets", "${PLUGIN_DATA}/ui/widgets"]
 ordering = []
 hot_reload = true
