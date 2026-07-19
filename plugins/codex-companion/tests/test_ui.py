@@ -282,7 +282,7 @@ class UiTests(unittest.TestCase):
         self.assertIn("widgetsReady:false", source)
         self.assertIn("scheduleWidgetStartup", source)
         self.assertNotIn("observe(document.documentElement,{childList:true,subtree:true});renderWidgets();render();", source)
-        self.assertIn("codexCompanionFeatureSettings:v2", source)
+        self.assertIn("codexCompanionFeatureSettings:v3", source)
         self.assertIn("widgetsEnabledByDefault===true", source)
         self.assertIn("actionsForPlacement", source)
         self.assertIn("if(!surface&&!actions.length)return", source)
