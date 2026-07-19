@@ -347,6 +347,11 @@ class UiTests(unittest.TestCase):
         self.assertIn("Codex exited before renderer/CDP attach", source)
         self.assertIn('self._write_status(state="error"', source)
 
+    def test_runtime_observer_ignores_companion_owned_footer_nodes(self) -> None:
+        source = (Path(__file__).resolve().parents[1] / "ui" / "runtime.js").read_text(encoding="utf-8")
+        self.assertIn("data-codex-companion-footer-actions", source)
+        self.assertIn("data-codex-companion-widget-footer", source)
+
     def test_builtin_widget_uses_localized_placeholders(self) -> None:
         source = (
             Path(__file__).resolve().parents[1] / "ui" / "widgets" / "usage-summary" / "widget.html"

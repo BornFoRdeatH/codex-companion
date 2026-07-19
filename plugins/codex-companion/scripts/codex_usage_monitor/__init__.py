@@ -1,3 +1,3 @@
 """Codex Companion (technical plugin id: codex-usage-monitor)."""
 
-__version__ = "1.3.1"
+__version__ = "1.3.2"
