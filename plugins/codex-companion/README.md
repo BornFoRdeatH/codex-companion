@@ -1,4 +1,4 @@
-# Codex Companion 1.3.10
+# Codex Companion 1.3.11
 
 The UI uses a compact live dock plus a responsive Control Center with Overview,
 Context Optimizer, Usage History, Handoff, Projects, Diagnostics, and Settings
@@ -267,7 +267,7 @@ Set `auto_locale = false` and `locale.language = "uk"` or `"en"` for an explicit
 
 ## Quick Actions and extension platform
 
-The 1.3 Extension Platform renderer controls are available but disabled by default in 1.3.10.
+The 1.3 Extension Platform renderer controls are available but disabled by default in 1.3.11.
 Checkpoint, Handoff, Review, and New task remain available from the stable Task Cockpit and Control
 Center surfaces. Enabling `handoff-actions`, `task-cockpit`, or `budget-optimizer` in Settings adds
 the corresponding quick-action surfaces. Actions are explicit-click only and never press Send.
@@ -332,17 +332,18 @@ transcript, and read/write SQLite snapshots. Failed App Server starts use a five
 
 On first use, `config.default.toml` is copied to `%PLUGIN_DATA%/config.toml`. When the CLI is run
 outside a hook, it resolves the active marketplace data directory under `~/.codex/plugins/data`.
-Version 1.3.10 keeps public config `schema_version = 1`, uses internal SQLite schema v6, and adds
+Version 1.3.11 keeps public config `schema_version = 1`, uses internal SQLite schema v6, and adds
 `[ui.advisor]` plus opt-in `[ui.advisor.prompt_coach]`. Existing configs inherit
 new defaults. Unknown keys warn and invalid values fall back safely.
 
-Version 1.3.10 restores the Extension Platform runtime with widgets and extension controls disabled
+Version 1.3.11 restores the Extension Platform runtime with widgets and extension controls disabled
 by default. Settings uses a fresh local feature-toggle namespace, so previous 1.3.x toggles do not
 re-enable widgets accidentally. Enable one widget or feature at a time to isolate renderer issues.
 Persisted widgets are mounted only after the first live snapshot and a short startup delay, so
 enabled widgets cannot run during the initial Codex renderer load path.
-Version 1.3.10 resets the local feature-toggle namespace again so all previously enabled widgets
-and extension controls start disabled for one-by-one isolation.
+Version 1.3.11 resets the local feature-toggle namespace again so all previously enabled widgets
+and extension controls start disabled for one-by-one isolation. It also makes the generated launcher
+select the newest cache by manifest semantic version rather than filesystem modification time.
 
 The privacy invariants `never_store_auth_tokens`, `never_store_prompt_contents`,
 `page_dom_denied`, `message_contents_denied`, and `network_denied` cannot be disabled. Raw prompts,

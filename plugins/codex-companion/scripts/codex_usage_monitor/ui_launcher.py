@@ -256,7 +256,9 @@ def _plugin_family(plugin_root: Path) -> Path:
 
 def _bootstrap_source(plugin_family: Path, plugin_data: Path) -> str:
     return f'''from __future__ import annotations
+import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -273,7 +275,17 @@ if not candidates:
     error_log.write_text(message, encoding="utf-8")
     print(message, file=sys.stderr)
     raise SystemExit(2)
-root = max(candidates, key=lambda path: ((path / "scripts" / "usage_monitor.py").stat().st_mtime, path.name))
+def manifest_version(path: Path) -> tuple[int, int, int, str]:
+    try:
+        raw = json.loads((path / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        value = str(raw.get("version", "")).split("+", 1)[0]
+        match = re.match(r"^(\\d+)\\.(\\d+)\\.(\\d+)$", value)
+        if match:
+            return (int(match.group(1)), int(match.group(2)), int(match.group(3)), path.name)
+    except Exception:
+        pass
+    return (0, 0, 0, path.name)
+root = max(candidates, key=manifest_version)
 script = root / "scripts" / "usage_monitor.py"
 if "--check" in sys.argv:
     print(script)
