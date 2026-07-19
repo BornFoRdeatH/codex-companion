@@ -1,4 +1,4 @@
-# Codex Companion 1.1.1
+# Codex Companion 1.2.0
 
 The UI uses a compact live dock plus a responsive Control Center with Overview,
 Context Optimizer, Usage History, Handoff, Projects, Diagnostics, and Settings
@@ -313,13 +313,28 @@ transcript, and read/write SQLite snapshots. Failed App Server starts use a five
 
 On first use, `config.default.toml` is copied to `%PLUGIN_DATA%/config.toml`. When the CLI is run
 outside a hook, it resolves the active marketplace data directory under `~/.codex/plugins/data`.
-Version 1.1.1 keeps public config `schema_version = 1`, uses internal SQLite schema v6, and adds
+Version 1.2.0 keeps public config `schema_version = 1`, uses internal SQLite schema v6, and adds
 `[ui.advisor]` plus opt-in `[ui.advisor.prompt_coach]`. Existing configs inherit
 new defaults. Unknown keys warn and invalid values fall back safely.
 
 The privacy invariants `never_store_auth_tokens`, `never_store_prompt_contents`,
 `page_dom_denied`, `message_contents_denied`, and `network_denied` cannot be disabled. Raw prompts,
 assistant text, auth tokens, tool inputs/outputs, and raw events are not stored by default.
+
+## Task Cockpit
+
+The Control Center overview is an action-first, current-task cockpit. It combines context runway,
+task health, progress signals, technical activity, and one prioritized recommendation. The health
+model uses only aggregate renderer/collector fields such as context provenance, turn totals, tool
+failure counts, compactions, and prompt-structure feature counts; it never receives or stores prompt,
+assistant, tool, diff, or filename content. Recommendations are advisory-only: Checkpoint, Handoff,
+Review, and New task require an explicit click, and Companion never presses Send or edits a prompt.
+
+The cockpit exposes recommendation confidence and source (`official`, `observed_renderer`, or
+`estimated`). Estimated context may inform the user but cannot produce a critical context guard.
+Activity timeline entries are technical lifecycle labels and timestamps only. A task switch clears
+dismissals and review state so recommendations do not leak between tasks. Review is a manual checklist
+for warnings, handoff readiness, and delivery readiness; it does not submit anything automatically.
 
 ## CLI
 

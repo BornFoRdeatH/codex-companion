@@ -19,6 +19,7 @@ from .widgets import load_widgets, markdown_to_html, sanitize_html
 from .render import derive
 from .advisor import evaluate as evaluate_advice
 from .budget import evaluate as evaluate_budget, transient_features
+from .task_cockpit import build as build_task_cockpit
 
 
 BINDING = "__codexUsageHost"
@@ -78,6 +79,7 @@ class UiHost:
             "scroll_direction": None, "guard_active": False,
         }
         self.transient_budget_features: dict[str, dict[str, Any]] = {}
+        self.cockpit_events: list[dict[str, Any]] = []
         self.budget_diagnostics: dict[str, Any] = {"last_action": None, "last_action_at": None}
         self.performance_state = "active"
         self.performance_diagnostics: dict[str, Any] = {"state": "active"}
@@ -253,6 +255,15 @@ class UiHost:
                 if action in {"checkpoint", "handoff", "new_task"}:
                     self.budget_diagnostics = {"last_action": action, "last_action_at": time.time()}
                     self._write_status(state="budget_action")
+            elif message.get("type") in {"recommendation_action", "recommendation_dismissed", "task_review_opened"}:
+                event_type = str(message.get("type"))
+                event = {"type": event_type, "at": time.time()}
+                for key in ("code", "action"):
+                    value = message.get(key)
+                    if isinstance(value, str) and value and len(value) <= 80:
+                        event[key] = value
+                self.cockpit_events.append(event)
+                self.cockpit_events = self.cockpit_events[-20:]
             elif message.get("type") == "performance_state":
                 value = str(message.get("state") or "")
                 if value in {"active", "idle", "background"}:
@@ -282,6 +293,7 @@ class UiHost:
                 thread_id = str(raw_id)[:128] if raw_id and not str(raw_id).startswith("client-new-thread:") else None
                 if thread_id != self.active_thread_id:
                     self.active_thread_id = thread_id
+                    self.cockpit_events = []
                     self.active_session_state = "available" if thread_id and self.storage.has_session(thread_id) else "pending"
                     self.active_thread_switched_at = time.time()
                     self._write_status(state="attached")
@@ -503,6 +515,13 @@ class UiHost:
         summary["view"]["budget"] = evaluate_budget(
             summary, self.config, self.transient_budget_features.get(selected_session_id)
         )
+        cockpit = build_task_cockpit(summary, summary["view"])
+        summary["view"]["task_health"] = {key: value for key, value in cockpit.items() if key != "activity"}
+        summary["view"]["task_activity"] = cockpit["activity"]
+        if self.cockpit_events:
+            summary["view"]["task_activity"]["events"] = (summary["view"]["task_activity"].get("events") or []) + self.cockpit_events
+            summary["view"]["task_activity"]["events"] = summary["view"]["task_activity"]["events"][-20:]
+            summary["view"]["task_activity"]["last_event"] = summary["view"]["task_activity"]["events"][-1]["type"]
         if selected_turn.get("ended_at") and selected_turn_id and selected_session_id:
             self.storage.save_advice(
                 selected_session_id, selected_turn_id,

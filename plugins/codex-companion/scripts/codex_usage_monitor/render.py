@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .config import LoadedConfig
 from .advisor import evaluate as evaluate_advice
+from .task_cockpit import build as build_task_cockpit
 
 
 def compact_number(value: Any, decimals: int = 1) -> str:
@@ -173,6 +174,8 @@ def derive(summary: dict[str, Any], config: LoadedConfig) -> dict[str, Any]:
         result["forecast"]["remaining_turns"] = rolling["remaining_turns"]
     result["guard"] = _guard(result, config)
     result["advisor"] = evaluate_advice(summary, result, config)
+    result["task_health"] = build_task_cockpit(summary, result)
+    result["task_activity"] = result["task_health"].pop("activity")
     return result
 
 

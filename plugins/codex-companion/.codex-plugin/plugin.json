@@ -1,6 +1,6 @@
 {
   "name": "codex-usage-monitor",
-  "version": "1.1.1+codex.20260719025500",
+  "version": "1.2.0+codex.20260719031044",
   "description": "Codex Companion adds telemetry, a control center, and privacy-safe, recoverable handoffs to new tasks.",
   "author": {
     "name": "Local"
@@ -15,8 +15,8 @@
   ],
   "interface": {
     "displayName": "Codex Companion",
-    "shortDescription": "Telemetry, control center, focus, and optimization",
-    "longDescription": "Extends Codex with session-isolated telemetry, a command palette, advisory budgets, project insights, smart performance scheduling, Safe Handoff Builder, native history focus, local token-saving advice, privacy-safe history, alerts, and verified message footers.",
+    "shortDescription": "Task Cockpit, telemetry, control center, and optimization",
+    "longDescription": "Extends Codex with a current-task Task Cockpit, session-isolated telemetry, a command palette, advisory budgets, project insights, smart performance scheduling, Safe Handoff Builder, native history focus, local token-saving advice, privacy-safe history, alerts, and verified message footers.",
     "developerName": "Local",
     "category": "Productivity",
     "capabilities": [

@@ -9,6 +9,7 @@ from codex_usage_monitor.budget import evaluate, transient_features
 from codex_usage_monitor.config import load_config
 from codex_usage_monitor.render import derive
 from codex_usage_monitor.storage import Storage
+from codex_usage_monitor.task_cockpit import build
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
@@ -99,6 +100,43 @@ class ControlCenterTests(unittest.TestCase):
         self.assertIn("long_prompt", value["reasons"])
         self.assertIn("multi_task", value["reasons"])
         self.assertNotIn("text", value)
+
+    def test_task_cockpit_prioritizes_context_risk_and_is_advisory(self) -> None:
+        summary = {}
+        view = {
+            "turn": {"turn_id": "t", "started_at": 90, "ended_at": 100, "total": 1200, "duration": 10},
+            "tools": {"total_calls": 4, "failed_calls": 3, "file_edits": 1},
+            "context": {"used_percent": 94, "source": "observed_renderer"},
+            "budget": {"context_optimizer": {"status": "new_task_recommended"}},
+            "advisor": {"items": [{"code": "split_request", "level": "info", "confidence": "medium", "source": "observed"}]},
+            "compactions": {"count": 1, "last_time": 95},
+        }
+        result = build(summary, view, now=101)
+        self.assertEqual(result["state"], "context_risk")
+        self.assertEqual(result["recommended_action"], "new_task")
+        self.assertTrue(result["advisory_only"])
+        self.assertEqual(result["activity"]["failure_rate"], 0.75)
+        self.assertNotIn("prompt", result)
+        self.assertIn("turn_completed", [event["type"] for event in result["activity"]["events"]])
+
+    def test_task_cockpit_estimated_context_does_not_create_critical_context_risk(self) -> None:
+        result = build({}, {
+            "turn": {"turn_id": "t", "ended_at": 10, "total": 500},
+            "tools": {"total_calls": 1, "failed_calls": 0},
+            "context": {"used_percent": 98, "source": "estimated"},
+            "budget": {"context_optimizer": {"status": "new_task_recommended"}},
+            "advisor": {}, "compactions": {"count": 0},
+        }, now=11)
+        self.assertNotEqual(result["state"], "context_risk")
+        self.assertNotEqual(result["primary_recommendation"]["level"], "critical")
+
+    def test_task_cockpit_events_are_technical_only(self) -> None:
+        result = build({}, {"turn": {}, "tools": {}, "context": {"source": "unavailable"},
+                            "advisor": {}, "budget": {}, "compactions": {}}, now=1)
+        serialized = str(result)
+        self.assertNotIn("assistant text", serialized)
+        self.assertNotIn("secret prompt", serialized)
+        self.assertIn("advisory_only", serialized)
 
     def test_project_alias_and_aggregates_do_not_expose_cwd(self) -> None:
         self.storage.upsert_session("s", None, "gpt-test", "abcdef1234567890")

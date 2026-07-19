@@ -1,6 +1,6 @@
 # BornFoRdeatH Codex Plugins
 
-Public Codex plugin marketplace containing **Codex Companion 1.1.1** (technical plugin ID `codex-usage-monitor`), with Safe Handoff Builder, a responsive Control Center, advisory Budget Planner, Project Insights, Smart Performance Mode, session-isolated local telemetry, Native History Focus, Usage Advisor, Usage Guard, and
+Public Codex plugin marketplace containing **Codex Companion 1.2.0** (technical plugin ID `codex-usage-monitor`), with Task Cockpit, Safe Handoff Builder, a responsive Control Center, advisory Budget Planner, Project Insights, Smart Performance Mode, session-isolated local telemetry, Native History Focus, Usage Advisor, Usage Guard, and
 optional memory-only runtime UI for the Codex desktop app.
 
 ## Install from GitHub
