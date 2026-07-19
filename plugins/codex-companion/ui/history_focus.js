@@ -5,14 +5,14 @@
 })(typeof globalThis === "object" ? globalThis : this, function () {
   "use strict";
 
-  function boundedCount(value, fallback = 10) {
+  function boundedCount(value, fallback = 3) {
     const number = Number(value);
-    return Number.isFinite(number) && number >= 5 && number <= 100 ? Math.trunc(number) : fallback;
+    return Number.isFinite(number) && number >= 3 && number <= 100 ? Math.trunc(number) : fallback;
   }
 
   function planWindow(totalTurnCount, visibleTurns) {
     const total = Math.max(0, Math.trunc(Number(totalTurnCount) || 0));
-    const size = boundedCount(visibleTurns, 10);
+    const size = boundedCount(visibleTurns, 3);
     const windowStart = total ? Math.max(1, total - size + 1) : 1;
     return {total, size, windowStart, hiddenLogicalTurns: Math.max(0, windowStart - 1)};
   }

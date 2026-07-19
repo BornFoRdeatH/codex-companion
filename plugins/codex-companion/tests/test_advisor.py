@@ -67,6 +67,21 @@ class AdvisorTests(unittest.TestCase):
         self.assertEqual(result["items"][0]["code"], "narrow_request")
         self.assertEqual(result["items"][0]["confidence"], "high")
 
+    def test_recommendations_have_canonical_explanation_contract(self) -> None:
+        view = {"turn": {"total": 3000, "duration": 180, "input": 1000, "cached": 100},
+                "tools": {"total_calls": 5, "failed_calls": 2, "tool_seconds": 200},
+                "compactions": {"count": 2}, "context": {}, "primary": {},
+                "forecast": {"burn_per_hour": 60, "exhaustion_hours": 1.5}}
+        result = evaluate({}, view, self.config)
+        self.assertGreaterEqual(len(result["all_items"]), 4)
+        required = {"dedupe_key", "priority", "action", "title_key", "what_happened_key", "why_key",
+                    "benefit_key", "next_step_key", "scope", "confidence", "source", "evidence"}
+        self.assertTrue(required.issubset(result["all_items"][0]))
+        self.assertIn("slow_turn", [item["code"] for item in result["all_items"]])
+        self.assertIn("low_cache_hit", [item["code"] for item in result["all_items"]])
+        self.assertIn("quota_burn", [item["code"] for item in result["all_items"]])
+        self.assertEqual(len({item["dedupe_key"] for item in result["all_items"]}), len(result["all_items"]))
+
     def test_exploration_and_advice_persistence_are_numeric_only(self) -> None:
         summary = {"advisor_baseline": {}, "prompt_features": None}
         view = {"turn": {"total": 10}, "tools": {"total_calls": 5, "failed_calls": 1, "tool_seconds": 2},

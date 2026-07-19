@@ -285,8 +285,8 @@ max_turns = 500
 
 [ui.focus_mode]
 enabled = true
-visible_turns = 10
-load_batch = 10
+visible_turns = 3
+load_batch = 3
 reset_on_thread_switch = true
 scroll_guard = true
 unknown_version_policy = "probe"
@@ -299,7 +299,7 @@ show_composer_badge = true
 cooldown_minutes = 30
 min_personal_turns = 10
 baseline_window = 50
-max_visible = 1
+max_visible = 5
 
 [ui.advisor.prompt_coach]
 enabled = false

@@ -27,9 +27,10 @@ assert.equal(validateMountedRange(mounted.map((row, index) => ({...row, parentKe
 assert.equal(validateMountedRange(mounted.map((row, index) => ({...row, turnNumber: index + 30 + (index > 2 ? 1 : 0)}))).reason, "non_contiguous_range");
 assert.equal(validateMountedRange(mounted.map((row, index) => ({...row, totalTurnCount: 34 + (index === 4 ? 1 : 0)}))).reason, "unstable_total");
 
-assert.equal(boundedCount(4), 10);
-assert.equal(boundedCount(101), 10);
+assert.equal(boundedCount(2), 3);
+assert.equal(boundedCount(101), 3);
 assert.equal(boundedCount(5), 5);
+assert.equal(boundedCount(3), 3);
 assert.equal(boundedCount(100), 100);
 
 assert.equal(signedBoundaryScrollTop(-8000, 100, 83, 30), -8013);

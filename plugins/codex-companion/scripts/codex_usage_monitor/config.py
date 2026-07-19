@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import copy
+import difflib
 import os
 import shutil
+import tempfile
+import time
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +29,94 @@ class LoadedConfig:
                 return default
             value = value[part]
         return value
+
+
+IMMUTABLE_CONFIG_PATHS = frozenset({
+    "privacy.never_store_auth_tokens",
+    "privacy.never_store_prompt_contents",
+    "privacy.never_store_assistant_text",
+    "storage.store_prompt_text",
+    "storage.store_assistant_text",
+    "storage.store_tool_inputs",
+    "storage.store_tool_outputs",
+    "ui.security.page_dom_denied",
+    "ui.security.message_contents_denied",
+    "ui.security.network_denied",
+})
+
+
+def _dotted_values(value: dict[str, Any], prefix: str = "") -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, child in value.items():
+        dotted = f"{prefix}.{key}" if prefix else key
+        if isinstance(child, dict):
+            result.update(_dotted_values(child, dotted))
+        else:
+            result[dotted] = child
+    return result
+
+
+def validate_config_text(plugin_root: Path, plugin_data: Path, text: str) -> dict[str, Any]:
+    """Validate editor input without changing the active config file."""
+    if not isinstance(text, str):
+        return {"valid": False, "warnings": [], "errors": ["Configuration must be text"], "immutable": []}
+    try:
+        override = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        return {"valid": False, "warnings": [], "errors": [f"TOML error: {exc}"], "immutable": []}
+    immutable = []
+    for dotted, value in _dotted_values(override).items():
+        if dotted in IMMUTABLE_CONFIG_PATHS:
+            expected = True if dotted.startswith(("privacy.", "ui.security.")) else False
+            if value != expected:
+                immutable.append(dotted)
+    if immutable:
+        return {"valid": False, "warnings": [], "errors": [f"Protected setting cannot be changed: {key}" for key in immutable], "immutable": immutable}
+    with tempfile.TemporaryDirectory(prefix="codex-companion-config-") as directory:
+        candidate = Path(directory) / "config.toml"
+        candidate.write_text(text, encoding="utf-8", newline="\n")
+        try:
+            loaded = load_config(plugin_root, Path(directory), create=False)
+        except (ConfigError, OSError, tomllib.TOMLDecodeError) as exc:
+            return {"valid": False, "warnings": [], "errors": [str(exc)], "immutable": []}
+    return {"valid": True, "warnings": list(loaded.warnings), "errors": [], "immutable": [], "schema_version": loaded.get("schema_version")}
+
+
+def config_preview(plugin_root: Path, plugin_data: Path, text: str) -> dict[str, Any]:
+    validation = validate_config_text(plugin_root, plugin_data, text)
+    if not validation["valid"]:
+        return {**validation, "diff": ""}
+    current = plugin_data / "config.toml"
+    before = current.read_text(encoding="utf-8").splitlines() if current.exists() else []
+    after = text.splitlines()
+    diff = "\n".join(difflib.unified_diff(before, after, fromfile="config.toml", tofile="edited config.toml", lineterm=""))
+    return {**validation, "diff": diff}
+
+
+def save_config_text(plugin_root: Path, plugin_data: Path, text: str) -> dict[str, Any]:
+    validation = validate_config_text(plugin_root, plugin_data, text)
+    if not validation["valid"]:
+        return validation
+    plugin_data.mkdir(parents=True, exist_ok=True)
+    target = plugin_data / "config.toml"
+    backup = None
+    if target.exists():
+        backup = plugin_data / f"config.toml.bak.{int(time.time())}"
+        shutil.copy2(target, backup)
+    fd, temp_name = tempfile.mkstemp(prefix="config.", suffix=".tmp", dir=plugin_data)
+    os.close(fd)
+    temp_path = Path(temp_name)
+    try:
+        temp_path.write_text(text, encoding="utf-8", newline="\n")
+        os.replace(temp_path, target)
+    finally:
+        temp_path.unlink(missing_ok=True)
+    return {**validation, "saved": True, "backup": str(backup) if backup else None, "path": str(target)}
+
+
+def reset_config(plugin_root: Path, plugin_data: Path) -> dict[str, Any]:
+    default_path = plugin_root / "config.default.toml"
+    return save_config_text(plugin_root, plugin_data, default_path.read_text(encoding="utf-8"))
 
 
 def _merge(defaults: dict[str, Any], override: dict[str, Any], prefix: str = "") -> tuple[dict[str, Any], list[str]]:
@@ -95,9 +186,9 @@ def _validate(data: dict[str, Any]) -> list[str]:
         data["ui"]["history"]["max_turns"] = 500
     focus_mode = data["ui"]["focus_mode"]
     for key in ("visible_turns", "load_batch"):
-        if not 5 <= focus_mode[key] <= 100:
-            warnings.append(f"ui.focus_mode.{key} must be between 5 and 100; using 10")
-            focus_mode[key] = 10
+        if not 3 <= focus_mode[key] <= 100:
+            warnings.append(f"ui.focus_mode.{key} must be between 3 and 100; using 3")
+            focus_mode[key] = 3
     if focus_mode["unknown_version_policy"] not in {"probe", "disable"}:
         warnings.append("Invalid ui.focus_mode.unknown_version_policy; using probe")
         focus_mode["unknown_version_policy"] = "probe"
@@ -223,6 +314,15 @@ def load_config(plugin_root: Path, plugin_data: Path, create: bool = True) -> Lo
             raise ConfigError(f"Cannot read {config_path}: {exc}") from exc
     override_ui = override.get("ui") if isinstance(override.get("ui"), dict) else {}
     original_has_focus = "focus_mode" in override_ui
+    focus_override = override_ui.get("focus_mode") if isinstance(override_ui.get("focus_mode"), dict) else {}
+    migrated_focus_defaults = (
+        original_has_focus
+        and focus_override.get("visible_turns") == 10
+        and focus_override.get("load_batch") == 10
+    )
+    if migrated_focus_defaults:
+        focus_override["visible_turns"] = 3
+        focus_override["load_batch"] = 3
     legacy = override_ui.pop("chat_virtualization", None)
     used_legacy = not original_has_focus and isinstance(legacy, dict)
     if used_legacy:
@@ -236,7 +336,7 @@ def load_config(plugin_root: Path, plugin_data: Path, create: bool = True) -> Lo
         warnings.append("ui.chat_virtualization is deprecated; migrated to ui.focus_mode")
     _migrate_legacy_rate_labels(data)
     warnings.extend(_validate(data))
-    if create and (not original_has_focus or isinstance(legacy, dict)):
+    if create and (not original_has_focus or isinstance(legacy, dict) or migrated_focus_defaults):
         focus = data["ui"]["focus_mode"]
         text = config_path.read_text(encoding="utf-8")
         if isinstance(legacy, dict):
@@ -251,6 +351,20 @@ def load_config(plugin_root: Path, plugin_data: Path, create: bool = True) -> Lo
                 if not skipping:
                     lines.append(line)
             text = "".join(lines)
+        if migrated_focus_defaults:
+            lines = []
+            in_focus = False
+            for line in text.splitlines(keepends=True):
+                stripped = line.strip()
+                if stripped.startswith("[") and stripped.endswith("]"):
+                    in_focus = stripped == "[ui.focus_mode]"
+                if in_focus and stripped.startswith("visible_turns = 10"):
+                    line = line.replace("visible_turns = 10", "visible_turns = 3")
+                elif in_focus and stripped.startswith("load_batch = 10"):
+                    line = line.replace("load_batch = 10", "load_batch = 3")
+                lines.append(line)
+            text = "".join(lines)
+            warnings.append("Migrated ui.focus_mode defaults from 10 turns to 3 turns")
         if not original_has_focus:
             text = text.rstrip() + (
                 "\n\n[ui.focus_mode]\n"
@@ -262,7 +376,13 @@ def load_config(plugin_root: Path, plugin_data: Path, create: bool = True) -> Lo
                 f"unknown_version_policy = {focus['unknown_version_policy']!r}\n".replace("'", '"')
             )
             warnings.append("Added ui.focus_mode defaults to config.toml")
-        config_path.write_text(text, encoding="utf-8", newline="\n")
+        try:
+            config_path.write_text(text, encoding="utf-8", newline="\n")
+        except OSError as exc:
+            if migrated_focus_defaults:
+                warnings.append(f"Could not persist ui.focus_mode migration: {exc}; using migrated values in memory")
+            else:
+                raise
     def expand(value: str) -> str:
         return os.path.expandvars(
             value.replace("${PLUGIN_DATA}", str(plugin_data)).replace("${PLUGIN_ROOT}", str(plugin_root))

@@ -22,8 +22,11 @@ def _recommendation(code: str, level: str, action: str, confidence: str, source:
                     reason: str, impact: str, evidence: dict[str, Any] | None = None) -> dict[str, Any]:
     numeric = {key: value for key, value in (evidence or {}).items()
                if value is None or isinstance(value, (bool, int, float))}
-    return {"code": code, "level": level, "action": action, "confidence": confidence,
-            "source": source, "reason_code": reason, "impact_code": impact, "evidence": numeric}
+    return {"code": code, "dedupe_key": code, "level": level, "priority": 0, "action": action,
+            "title_key": code, "what_happened_key": reason, "why_key": reason,
+            "benefit_key": impact, "next_step_key": code, "scope": "current_task",
+            "confidence": confidence, "source": source, "reason_code": reason,
+            "impact_code": impact, "evidence": numeric, "estimated": source == "estimated"}
 
 
 def build(summary: dict[str, Any], view: dict[str, Any], now: float | None = None) -> dict[str, Any]:
@@ -56,20 +59,29 @@ def build(summary: dict[str, Any], view: dict[str, Any], now: float | None = Non
         recommendations.append(_recommendation("context_checkpoint", "warning", "checkpoint", "high", context_source,
                                                "context_pressure", "reduce_recovery_risk", {"context_used_percent": context_used}))
 
-    if calls >= 3 and failure_rate >= 0.5:
+    for item in advisor.get("all_items") or advisor.get("items") or []:
+        code = str(item.get("code") or "")
+        if not code:
+            continue
+        recommendations.append({**item, "action": str(item.get("action") or "review"),
+                                 "scope": str(item.get("scope") or "current_task"),
+                                 "evidence": {key: value for key, value in (item.get("evidence") or {}).items()
+                                              if value is None or isinstance(value, (bool, int, float))}})
+
+    if not recommendations and calls >= 3 and failure_rate >= 0.5:
         recommendations.append(_recommendation("tool_retry_loop", "warning", "review", "medium", "observed",
                                                "repeated_tool_failures", "narrow_next_action",
                                                {"tool_calls": calls, "failed_tool_calls": failures, "failure_rate": failure_rate}))
-    if (_number(compactions.get("count")) or 0) >= 2:
-        recommendations.append(_recommendation("compaction_pressure", "warning", "checkpoint", "medium", "observed",
-                                               "repeated_compactions", "preserve_continuity", {"compactions": compactions.get("count")}))
-    for item in advisor.get("all_items") or advisor.get("items") or []:
-        code = str(item.get("code") or "");
-        if code in {"split_request", "avoid_new_scope", "narrow_request", "reduce_exploration", "quota_conservation"}:
-            action = "review" if code != "quota_conservation" else "review"
-            recommendations.append(_recommendation(code, str(item.get("level") or "info"), action,
-                                                   str(item.get("confidence") or "low"), str(item.get("source") or "observed"),
-                                                   code, "reduce_risk", item.get("evidence")))
+
+    deduped: dict[str, dict[str, Any]] = {}
+    for item in recommendations:
+        key = str(item.get("dedupe_key") or item.get("code") or "unknown")
+        previous = deduped.get(key)
+        rank = (LEVEL_ORDER.get(str(item.get("level") or "info"), 0), int(item.get("priority") or 0))
+        previous_rank = (LEVEL_ORDER.get(str(previous.get("level") or "info"), 0), int(previous.get("priority") or 0)) if previous else (-1, -1)
+        if previous is None or rank > previous_rank:
+            deduped[key] = item
+    recommendations = list(deduped.values())
 
     if not turn:
         state = "unavailable"
@@ -82,7 +94,8 @@ def build(summary: dict[str, Any], view: dict[str, Any], now: float | None = Non
     else:
         state = "ready_for_review"
 
-    recommendations.sort(key=lambda item: (LEVEL_ORDER.get(item["level"], 0), ACTION_ORDER.get(item["action"], 0)), reverse=True)
+    recommendations.sort(key=lambda item: (LEVEL_ORDER.get(item.get("level"), 0), int(item.get("priority") or 0),
+                                            ACTION_ORDER.get(item.get("action"), 0), item.get("confidence") == "high"), reverse=True)
     primary = recommendations[0] if recommendations else _recommendation(
         "review_when_ready", "info", "review", "medium" if turn else "low", context_source,
         "continue_current_task", "maintain_progress", {"turn_tokens": turn_total})

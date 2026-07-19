@@ -14,12 +14,45 @@ from codex_usage_monitor.storage import Storage
 from codex_usage_monitor.ui_host import _primary_target, _safe_origin, _target_summary, match_adapter
 from codex_usage_monitor.ui_launcher import (
     _bootstrap_source, _plugin_family, _user_visible_path, discover_codex_app, launch_codex, reserve_loopback_port,
-    codex_process_running, legacy_launcher_paths, launcher_paths, restart_existing_codex,
+    codex_process_running, legacy_launcher_paths, launcher_paths, plugin_manifest_version, resolve_plugin_root,
+    restart_existing_codex,
 )
 from codex_usage_monitor.widgets import WidgetError, load_widget_report, load_widgets, markdown_to_html, sanitize_html, validate_manifest
 
 
 class UiTests(unittest.TestCase):
+    def test_resolve_plugin_root_selects_newest_cache_sibling(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            family = Path(directory) / "cache" / "codex-usage-monitor"
+            roots = []
+            for version in ("1.4.2+codex.20260719132413", "1.4.2+codex.20260719133652"):
+                root = family / version
+                (root / ".codex-plugin").mkdir(parents=True)
+                (root / "scripts").mkdir()
+                (root / "scripts" / "usage_monitor.py").write_text("", encoding="utf-8")
+                (root / ".codex-plugin" / "plugin.json").write_text(json.dumps({"version": version}), encoding="utf-8")
+                roots.append(root)
+            self.assertEqual(resolve_plugin_root(roots[0]), roots[1])
+            self.assertEqual(plugin_manifest_version(roots[1]), "1.4.2+codex.20260719133652")
+
+    def test_resolve_plugin_root_falls_back_when_no_sibling_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            stale = Path(directory) / "deleted-version"
+            self.assertEqual(resolve_plugin_root(stale), stale)
+
+    def test_resolve_plugin_root_recovers_deleted_version_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            family = Path(directory) / "cache" / "codex-usage-monitor"
+            current = family / "1.4.2+codex.20260719134618"
+            (current / ".codex-plugin").mkdir(parents=True)
+            (current / "scripts").mkdir()
+            (current / "scripts" / "usage_monitor.py").write_text("", encoding="utf-8")
+            (current / ".codex-plugin" / "plugin.json").write_text(
+                json.dumps({"version": current.name}), encoding="utf-8"
+            )
+            stale = family / "1.4.2+codex.20260719132413"
+            self.assertEqual(resolve_plugin_root(stale), current)
+
     def test_loopback_port_and_non_loopback_cdp_rejection(self) -> None:
         self.assertGreater(reserve_loopback_port(), 0)
         with self.assertRaises(CdpError):
@@ -248,6 +281,11 @@ class UiTests(unittest.TestCase):
         self.assertIn("data-codex-usage-guard-badge", source)
         self.assertIn("data-codex-usage-advisor-badge", source)
         self.assertIn("advisorConfig", source)
+        self.assertIn("const item=visibleAdvice(),details=item&&adviceDetails(item)", source)
+        self.assertIn("adviceEvidence(item)", source)
+        self.assertIn("#advisorAction{white-space:pre-wrap", source)
+        self.assertIn("strings.benefit", source)
+        self.assertIn("strings.nextStep", source)
         self.assertIn("data-codex-companion-focus-hidden", source)
         self.assertIn("data-codex-companion-history-gate", source)
         self.assertIn("native_focus_contract", source)
@@ -270,6 +308,23 @@ class UiTests(unittest.TestCase):
         self.assertIn("cockpitGauge", source)
         self.assertIn("recommendation_action", source)
         self.assertIn("recommendation_dismissed", source)
+        self.assertIn("renderRichRecommendations", source)
+        self.assertIn("codexCompanionFastRender", source)
+        self.assertIn("__codexCompanionDomInspect", source)
+        self.assertIn('privacy:"metadata_only"', source)
+        self.assertNotIn("outerHTML", source)
+        self.assertIn("applyFastRender", source)
+        self.assertIn("_fadeIn_", source)
+        self.assertIn("_fadeListDecoration_", source)
+        self.assertIn("fastRenderHint", source)
+        self.assertIn("contenteditable=\"true\"", source)
+        self.assertIn("whatHappened", source)
+        self.assertIn("adviceEvidence", source)
+        self.assertIn("config_validate", source)
+        self.assertIn("config_preview", source)
+        self.assertIn("config_save", source)
+        self.assertIn("config_reset", source)
+        self.assertIn("Protected privacy/security fields", source)
         self.assertIn("task_review_opened", source)
         self.assertIn("advisory_only", source)
         self.assertIn("taskThreadId", source)
@@ -329,8 +384,14 @@ class UiTests(unittest.TestCase):
         self.assertIn("IntersectionObserver", source)
         self.assertIn("codex-companion-handoff:", source)
         self.assertIn("pendingHandoffForMeta", source)
+        self.assertIn("metaThread===requestThread", source)
         self.assertIn("started+5>=created", source)
         self.assertIn("maybeCaptureHandoff", source)
+        self.assertIn("handoffCaptureCandidate", source)
+        self.assertIn("createdAt:Date.now()", source)
+        self.assertIn("Date.now()-Number(candidate.createdAt||0)<350", source)
+        self.assertIn("setTimeout(()=>{state.handoffCaptureTimer", source)
+        self.assertIn("handoffModal.hidden=true;anchor.click()", source)
         self.assertIn("__codexCompanionGitUpdate", source)
         self.assertIn("navigator.clipboard.writeText", source)
         self.assertNotIn('type:"handoff_content"', source)

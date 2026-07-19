@@ -254,6 +254,44 @@ def _plugin_family(plugin_root: Path) -> Path:
     return plugin_root
 
 
+def plugin_manifest_version(plugin_root: Path) -> str:
+    """Return the installed plugin version without exposing any content data."""
+    try:
+        value = json.loads((plugin_root / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        return str(value.get("version", ""))
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return ""
+
+
+def _plugin_version_key(plugin_root: Path) -> tuple[int, int, int, str, str]:
+    value = plugin_manifest_version(plugin_root)
+    base, _, build = value.partition("+")
+    parts = base.split(".")
+    try:
+        version = tuple(int(part) for part in parts[:3])
+        if len(version) != 3:
+            raise ValueError
+    except (ValueError, TypeError):
+        version = (0, 0, 0)
+    return (*version, build, plugin_root.name)
+
+
+def resolve_plugin_root(plugin_root: Path) -> Path:
+    """Resolve a versioned cache path to the newest valid sibling root."""
+    family = _plugin_family(plugin_root)
+    direct = family / "scripts" / "usage_monitor.py"
+    if direct.is_file():
+        return family
+    try:
+        candidates = [
+            path for path in family.iterdir()
+            if path.is_dir() and (path / "scripts" / "usage_monitor.py").is_file()
+        ]
+    except OSError:
+        candidates = []
+    return max(candidates, key=_plugin_version_key) if candidates else plugin_root
+
+
 def _bootstrap_source(plugin_family: Path, plugin_data: Path) -> str:
     return f'''from __future__ import annotations
 import json

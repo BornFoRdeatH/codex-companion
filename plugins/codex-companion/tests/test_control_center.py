@@ -130,6 +130,18 @@ class ControlCenterTests(unittest.TestCase):
         self.assertNotEqual(result["state"], "context_risk")
         self.assertNotEqual(result["primary_recommendation"]["level"], "critical")
 
+    def test_task_cockpit_preserves_canonical_recommendations_and_deduplicates(self) -> None:
+        item = {"code": "slow_turn", "dedupe_key": "slow_turn", "level": "warning", "priority": 32,
+                "action": "review", "title_key": "slow_turn", "what_happened_key": "slow_turn",
+                "why_key": "slow_turn", "benefit_key": "slow_turn", "next_step_key": "slow_turn",
+                "scope": "current_turn", "confidence": "high", "source": "observed",
+                "evidence": {"duration_seconds": 180}}
+        result = build({}, {"turn": {"ended_at": 1}, "tools": {}, "context": {}, "budget": {},
+                            "advisor": {"all_items": [item, {**item, "level": "info"}]}, "compactions": {}}, now=2)
+        self.assertEqual(len(result["recommendations"]), 1)
+        self.assertEqual(result["recommendations"][0]["what_happened_key"], "slow_turn")
+        self.assertEqual(result["recommendations"][0]["scope"], "current_turn")
+
     def test_task_cockpit_events_are_technical_only(self) -> None:
         result = build({}, {"turn": {}, "tools": {}, "context": {"source": "unavailable"},
                             "advisor": {}, "budget": {}, "compactions": {}}, now=1)

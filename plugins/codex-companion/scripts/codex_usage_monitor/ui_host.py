@@ -12,9 +12,17 @@ from pathlib import Path
 from typing import Any
 
 from .cdp import CdpConnection, CdpError, discover_targets, discover_version
-from .config import LoadedConfig
+from .config import LoadedConfig, config_preview, load_config, reset_config, save_config_text, validate_config_text
 from .storage import Storage
-from .ui_launcher import codex_process_running, discover_codex_app, launch_codex, reserve_loopback_port, restart_existing_codex
+from .ui_launcher import (
+    codex_process_running,
+    discover_codex_app,
+    launch_codex,
+    plugin_manifest_version,
+    resolve_plugin_root,
+    reserve_loopback_port,
+    restart_existing_codex,
+)
 from .widgets import load_widget_report, markdown_to_html, sanitize_html
 from .render import derive
 from .advisor import evaluate as evaluate_advice
@@ -60,7 +68,7 @@ def match_adapter(fingerprint_value: dict[str, str], adapters: list[dict[str, An
 
 class UiHost:
     def __init__(self, plugin_root: Path, plugin_data: Path, config: LoadedConfig, storage: Storage, restart_existing: bool = False):
-        self.plugin_root = plugin_root
+        self.plugin_root = resolve_plugin_root(plugin_root)
         self.plugin_data = plugin_data
         self.config = config
         self.storage = storage
@@ -90,6 +98,8 @@ class UiHost:
         self.hot_reload_diagnostics: dict[str, Any] = {
             "enabled": bool(self.config.get("ui.widgets.hot_reload", False)),
             "count": 0, "last_reload_at": None, "last_error": None, "last_signature": None,
+            "plugin_root": str(self.plugin_root), "plugin_version": plugin_manifest_version(self.plugin_root),
+            "reconnect_reason": None,
         }
         self._new_document_script_id: str | None = None
         self._runtime_signature: str | None = None
@@ -124,6 +134,7 @@ class UiHost:
                 fingerprint=fp, elapsed_ms=_elapsed_ms(started_at),
             )
             return 0
+        self._refresh_plugin_root("host_start")
         adapters = load_adapters(self.plugin_root)
         adapter = match_adapter(fp, adapters)
         policy = self.config.get("ui.unknown_version_policy", "dock_only")
@@ -253,8 +264,23 @@ class UiHost:
         self._inject_runtime(connection, runtime, supported, adapter, adapters, add_new_document=True)
 
     def _runtime_source(self) -> str:
+        self._refresh_plugin_root("runtime_source")
         history_focus = (self.plugin_root / "ui" / "history_focus.js").read_text(encoding="utf-8")
         return history_focus + "\n" + (self.plugin_root / "ui" / "runtime.js").read_text(encoding="utf-8")
+
+    def _refresh_plugin_root(self, reason: str | None = None) -> bool:
+        resolved = resolve_plugin_root(self.plugin_root)
+        changed = resolved != self.plugin_root
+        if changed:
+            self.plugin_root = resolved
+            self._runtime_signature = None
+        self.hot_reload_diagnostics.update({
+            "plugin_root": str(self.plugin_root),
+            "plugin_version": plugin_manifest_version(self.plugin_root),
+        })
+        if changed or reason:
+            self.hot_reload_diagnostics["reconnect_reason"] = reason if changed else self.hot_reload_diagnostics.get("reconnect_reason")
+        return changed
 
     def _inject_runtime(
         self,
@@ -284,6 +310,7 @@ class UiHost:
         connection.call("Runtime.evaluate", {"expression": source, "awaitPromise": False})
 
     def _watch_signature(self) -> str:
+        self._refresh_plugin_root("watch_signature")
         paths = [self.plugin_root / "ui" / "runtime.js", self.plugin_root / "ui" / "history_focus.js"]
         if self.config.get("ui.widgets.enabled", True):
             for directory in self.config.get("ui.widgets.directories", []):
@@ -312,13 +339,17 @@ class UiHost:
     ) -> None:
         if not self.config.get("ui.widgets.hot_reload", False):
             return
+        root_changed = self._refresh_plugin_root("stale_plugin_root")
+        if root_changed:
+            adapters = load_adapters(self.plugin_root)
+            self._adapters = adapters
         signature = self._watch_signature()
         if self._runtime_signature is None:
             self._runtime_signature = signature
             self.hot_reload_diagnostics["last_signature"] = signature[:12]
-            if not force:
+            if not force and not root_changed:
                 return
-        if not force and signature == self._runtime_signature:
+        if not force and not root_changed and signature == self._runtime_signature:
             return
         try:
             runtime = self._runtime_source()
@@ -334,6 +365,21 @@ class UiHost:
             self.cockpit_events = self.cockpit_events[-20:]
             self._write_status(state="attached", hot_reload=self.hot_reload_diagnostics)
         except (OSError, CdpError, json.JSONDecodeError) as exc:
+            if isinstance(exc, OSError) and self._refresh_plugin_root("stale_path"):
+                try:
+                    runtime = self._runtime_source()
+                    signature = self._watch_signature()
+                    self._inject_runtime(connection, runtime, supported, adapter, adapters, add_new_document=True)
+                    self._runtime_signature = signature
+                    self.hot_reload_diagnostics.update({
+                        "count": int(self.hot_reload_diagnostics.get("count") or 0) + 1,
+                        "last_reload_at": time.time(), "last_error": None, "last_signature": signature[:12],
+                        "reconnect_reason": "stale_path_recovered",
+                    })
+                    self._write_status(state="attached", hot_reload=self.hot_reload_diagnostics)
+                    return
+                except (OSError, CdpError, json.JSONDecodeError) as retry_exc:
+                    exc = retry_exc
             self.hot_reload_diagnostics["last_error"] = type(exc).__name__
             self._log_error(exc)
             self._write_status(state="reconnecting", error=str(exc), error_class=type(exc).__name__)
@@ -412,6 +458,8 @@ class UiHost:
                 continue
             if message.get("type") == "history_request":
                 self._respond_history(connection, message)
+            elif message.get("type") in {"config_request", "config_validate", "config_preview", "config_save", "config_reset"}:
+                self._respond_config(connection, message)
             elif message.get("type") == "project_request":
                 self._respond_projects(connection, message)
             elif message.get("type") == "project_alias":
@@ -558,6 +606,41 @@ class UiHost:
         except (ValueError, sqlite3.Error) as exc:
             payload = {"requestId": request_id, "error": str(exc), "turns": []}
         expression = f"window.__codexUsageHistoryUpdate&&window.__codexUsageHistoryUpdate({json.dumps(payload, separators=(',', ':'))})"
+        connection.call("Runtime.evaluate", {"expression": expression, "returnByValue": False}, timeout=1.0)
+
+    def _respond_config(self, connection: CdpConnection, message: dict[str, Any]) -> None:
+        request_id = str(message.get("requestId") or "")[:80]
+        message_type = str(message.get("type") or "config_request")
+        target = self.config.path
+        try:
+            if message_type == "config_request":
+                text = target.read_text(encoding="utf-8") if target.exists() else ""
+                payload = {"requestId": request_id, "type": "config_loaded", "text": text,
+                           "path": str(target), "schemaVersion": self.config.get("schema_version"),
+                           "warnings": list(self.config.warnings), "restartRequired": False}
+            elif message_type in {"config_validate", "config_preview"}:
+                text = str(message.get("text") or "")
+                result = config_preview(self.plugin_root, self.plugin_data, text) if message_type == "config_preview" else validate_config_text(self.plugin_root, self.plugin_data, text)
+                payload = {"requestId": request_id, "type": "config_result", "operation": message_type, **result}
+            elif message_type == "config_save":
+                result = save_config_text(self.plugin_root, self.plugin_data, str(message.get("text") or ""))
+                payload = {"requestId": request_id, "type": "config_result", "operation": message_type, **result,
+                           "restartRequired": bool(result.get("saved"))}
+                if result.get("saved"):
+                    self.config = load_config(self.plugin_root, self.plugin_data)
+                    self._write_status(state="config_saved")
+            else:
+                result = reset_config(self.plugin_root, self.plugin_data)
+                payload = {"requestId": request_id, "type": "config_result", "operation": message_type, **result,
+                           "restartRequired": bool(result.get("saved"))}
+                if result.get("saved"):
+                    self.config = load_config(self.plugin_root, self.plugin_data)
+                    self._write_status(state="config_reset")
+        except (OSError, ValueError, TypeError) as exc:
+            payload = {"requestId": request_id, "type": "config_result", "operation": message_type,
+                       "valid": False, "saved": False, "warnings": [], "errors": [str(exc)],
+                       "restartRequired": False}
+        expression = f"window.__codexCompanionConfigUpdate&&window.__codexCompanionConfigUpdate({json.dumps(payload, separators=(',', ':'))})"
         connection.call("Runtime.evaluate", {"expression": expression, "returnByValue": False}, timeout=1.0)
 
     def _respond_projects(self, connection: CdpConnection, message: dict[str, Any]) -> None:

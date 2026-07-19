@@ -1,4 +1,4 @@
-# Codex Companion 1.4.2
+# Codex Companion 1.4.3
 
 The UI uses a compact live dock plus a responsive Control Center with Overview,
 Context Optimizer, Usage History, Handoff, Projects, Diagnostics, and Settings
@@ -233,7 +233,7 @@ The UI host uses the active/idle/background performance interval and writes a fi
 
 ### Usage Advisor
 
-The local **Usage Advisor** recommends one concrete token-saving action from measured telemetry.
+The local **Usage Advisor** recommends up to five prioritized token-saving actions from measured telemetry.
 It can suggest starting a new chat when renderer-observed context is at least 85%, avoiding new
 scope after repeated compactions, narrowing an unusually expensive request, reducing exploration
 after excessive or failed tool calls, using lower reasoning effort for a tool-light outlier, or
@@ -243,10 +243,11 @@ answer quality and never calls a model.
 After ten completed turns, the Advisor compares the current turn with the median and median absolute
 deviation of the last 50 completed turns for the same model. Until then, conservative fixed
 thresholds work immediately. Unfinished turns, unavailable values, reset discontinuities, and turns
-from other models are excluded. The dock shows one prioritized tip, warning/critical tips add a
-composer badge, and completed final-answer footers retain their turn's tip. Clicking the dock tip
-shows numeric evidence, confidence, provenance, and the suggested action; dismiss state has a
-30-minute per-type cooldown. History displays advice markers and the personal token baseline.
+from other models are excluded. The dock shows one compact primary tip, while Control Center expands
+each recommendation into what happened, why it matters, expected benefit, next step, provenance,
+confidence, and numeric evidence. Warning/critical tips add a composer badge, and completed
+final-answer footers retain their turn's tip. Dismiss state has a 30-minute per-type cooldown.
+History displays advice markers and the personal token baseline.
 
 Prompt Coach is a separate opt-in feature. When enabled, the `UserPromptSubmit.prompt` hook field is
 examined locally for structural signals in Ukrainian and English, then immediately discarded. Only
@@ -267,7 +268,7 @@ Set `auto_locale = false` and `locale.language = "uk"` or `"en"` for an explicit
 
 ## Quick Actions and extension platform
 
-The 1.3 Extension Platform renderer controls are available but disabled by default in 1.4.2.
+The 1.3 Extension Platform renderer controls are available but disabled by default in 1.4.3.
 Checkpoint, Handoff, Review, and New task remain available from the stable Task Cockpit and Control
 Center surfaces. Enabling `handoff-actions`, `task-cockpit`, or `budget-optimizer` in Settings adds
 the corresponding quick-action surfaces. Actions are explicit-click only and never press Send.
@@ -332,7 +333,7 @@ transcript, and read/write SQLite snapshots. Failed App Server starts use a five
 
 On first use, `config.default.toml` is copied to `%PLUGIN_DATA%/config.toml`. When the CLI is run
 outside a hook, it resolves the active marketplace data directory under `~/.codex/plugins/data`.
-Version 1.4.2 keeps public config `schema_version = 1`, uses internal SQLite schema v6, and adds
+Version 1.4.3 keeps public config `schema_version = 1`, uses internal SQLite schema v6, and adds
 `[ui.advisor]` plus opt-in `[ui.advisor.prompt_coach]`. Existing configs inherit
 new defaults. Unknown keys warn and invalid values fall back safely.
 
@@ -341,9 +342,12 @@ by default. Settings uses a fresh local feature-toggle namespace, so previous 1.
 re-enable widgets accidentally. Enable one widget or feature at a time to isolate renderer issues.
 Persisted widgets are mounted only after the first live snapshot and a short startup delay, so
 enabled widgets cannot run during the initial Codex renderer load path.
-Version 1.4.2 resets the local feature-toggle namespace again so all previously enabled widgets
+Version 1.4.3 resets the local feature-toggle namespace again so all previously enabled widgets
 and extension controls start disabled for one-by-one isolation. It also makes the generated launcher
 select the newest cache by manifest semantic version rather than filesystem modification time.
+Settings also provides a full TOML editor with syntax/schema validation, protected privacy/security
+fields, diff preview, atomic save, timestamped backup, and reset to defaults. Configuration writes
+are host-validated; a Codex restart may be required for host/runtime changes.
 Composer footer placement is available only for a single simple built-in action menu button. External
 widget cards and widget-registered footer controls still fall back to safe non-composer placements.
 For development, `ui.widgets.hot_reload = true` watches `ui/runtime.js`, `ui/history_focus.js`, and

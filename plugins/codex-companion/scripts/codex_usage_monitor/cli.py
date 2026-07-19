@@ -14,12 +14,13 @@ from pathlib import Path
 
 from .collector import ensure_collector, find_codex_executable
 from .budget import evaluate as evaluate_budget
+from .cdp import CdpConnection, CdpError, discover_targets
 from .config import ConfigError, load_config
 from .render import render
 from .render import derive
 from .storage import Storage
 from .paths import resolve_plugin_data
-from .ui_host import UiHost, fingerprint, load_adapters, match_adapter
+from .ui_host import UiHost, _primary_target, fingerprint, load_adapters, match_adapter
 from .ui_launcher import discover_codex_app, install_launcher, status as ui_status, uninstall_launcher
 
 
@@ -83,6 +84,7 @@ def parser() -> argparse.ArgumentParser:
     ui_sub.add_parser("install")
     ui_sub.add_parser("uninstall")
     ui_sub.add_parser("doctor")
+    ui_sub.add_parser("inspect")
     ui_sub.add_parser("status")
     ui_sub.add_parser("adapters")
     return result
@@ -125,6 +127,34 @@ def main(argv: list[str] | None = None) -> int:
             if args.ui_command == "status":
                 print(json.dumps(ui_status(plugin_data), indent=2, ensure_ascii=False))
                 return 0
+            if args.ui_command == "inspect":
+                details = ui_status(plugin_data)
+                port = details.get("port")
+                if not isinstance(port, int) or port <= 0:
+                    print(json.dumps({"available": False, "reason": "host_port_unavailable"}, indent=2))
+                    return 1
+                target = _primary_target(discover_targets(port))
+                if not target:
+                    print(json.dumps({"available": False, "reason": "renderer_target_unavailable"}, indent=2))
+                    return 1
+                connection = CdpConnection(str(target["webSocketDebuggerUrl"]))
+                try:
+                    result = connection.call(
+                        "Runtime.evaluate",
+                        {
+                            "expression": "window.__codexCompanionDomInspect&&window.__codexCompanionDomInspect()",
+                            "returnByValue": True,
+                        },
+                        timeout=2.0,
+                    )
+                    value = ((result or {}).get("result") or {}).get("value")
+                    print(json.dumps(value or {"available": False, "reason": "inspection_api_unavailable"}, indent=2, ensure_ascii=False))
+                    return 0 if value else 1
+                except (CdpError, OSError) as exc:
+                    print(json.dumps({"available": False, "reason": type(exc).__name__}, indent=2))
+                    return 1
+                finally:
+                    connection.close()
             executable = discover_codex_app(plugin_data)
             fp = fingerprint(executable) if executable else None
             adapters = load_adapters(plugin_root)

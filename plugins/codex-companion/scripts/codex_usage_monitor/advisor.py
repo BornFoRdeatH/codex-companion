@@ -20,6 +20,27 @@ CODE_ORDER = {
     "add_target": 45,
     "add_constraints": 40,
     "add_acceptance": 35,
+    "slow_turn": 32,
+    "low_cache_hit": 31,
+    "quota_burn": 29,
+    "insufficient_data": 5,
+}
+
+RECOMMENDATION_META = {
+    "start_new_chat": ("new_task", "context_exhaustion", "current_task"),
+    "avoid_new_scope": ("review", "context_pressure", "current_task"),
+    "narrow_request": ("review", "expensive_turn", "current_turn"),
+    "reduce_exploration": ("review", "tool_exploration", "current_turn"),
+    "consider_lower_effort": ("review", "reasoning_outlier", "current_turn"),
+    "quota_conservation": ("review", "quota_pressure", "account"),
+    "split_request": ("review", "multi_goal_request", "current_turn"),
+    "add_target": ("review", "missing_target", "current_turn"),
+    "add_constraints": ("review", "missing_constraints", "current_turn"),
+    "add_acceptance": ("review", "missing_acceptance", "current_turn"),
+    "slow_turn": ("review", "slow_turn", "current_turn"),
+    "low_cache_hit": ("review", "low_cache_hit", "current_turn"),
+    "quota_burn": ("review", "quota_burn", "account"),
+    "insufficient_data": ("review", "insufficient_data", "current_task"),
 }
 
 
@@ -88,10 +109,17 @@ def evaluate(summary: dict[str, Any], view: dict[str, Any], config: LoadedConfig
     compactions = view.get("compactions") or {}
     items: list[dict[str, Any]] = []
 
-    def add(code: str, level: str, confidence: str, source: str, evidence: dict[str, Any], global_value: bool = False) -> None:
+    def add(code: str, level: str, confidence: str, source: str, evidence: dict[str, Any], global_value: bool = False,
+            action: str | None = None, scope: str | None = None) -> None:
         numeric = {key: value for key, value in evidence.items() if value is None or isinstance(value, (bool, int, float))}
-        items.append({"code": code, "level": level, "confidence": confidence, "source": source,
-                      "evidence": numeric, "global": global_value, "estimated": source == "estimated"})
+        default_action, dedupe_key, default_scope = RECOMMENDATION_META.get(code, ("review", code, "current_task"))
+        items.append({"code": code, "dedupe_key": dedupe_key, "level": level,
+                      "priority": CODE_ORDER.get(code, 0), "action": action or default_action,
+                      "title_key": code, "what_happened_key": dedupe_key,
+                      "why_key": dedupe_key, "benefit_key": dedupe_key,
+                      "next_step_key": code, "scope": scope or default_scope,
+                      "confidence": confidence, "source": source, "evidence": numeric,
+                      "global": global_value, "estimated": source == "estimated"})
 
     context_used = _number(context.get("used_percent"))
     context_source = str(context.get("source") or "unavailable")
@@ -152,6 +180,19 @@ def evaluate(summary: dict[str, Any], view: dict[str, Any], config: LoadedConfig
     if exploration:
         add("reduce_exploration", "warning", "high" if personalized else "medium", "observed", explore_evidence)
 
+    slow_seconds = float(config.get("thresholds.slow_turn_seconds", 120))
+    if _number(turn.get("duration")) is not None and float(turn["duration"]) >= slow_seconds:
+        add("slow_turn", "warning", "high", "observed",
+            {"duration_seconds": float(turn["duration"]), "slow_turn_seconds": slow_seconds})
+
+    turn_input = _number(turn.get("input"))
+    turn_cached = _number(turn.get("cached"))
+    cache_hit = 100.0 * turn_cached / turn_input if turn_input and turn_cached is not None else None
+    low_cache = float(config.get("thresholds.low_cache_hit_percent", 50))
+    if cache_hit is not None and cache_hit < low_cache:
+        add("low_cache_hit", "info", "high", "observed",
+            {"cache_hit_percent": cache_hit, "low_cache_hit_percent": low_cache})
+
     reasoning = _number(turn.get("reasoning"))
     reasoning_stats = baseline.get("reasoning_tokens") or {}
     if (reasoning is not None and int(reasoning_stats.get("count") or 0) >= min_turns
@@ -167,6 +208,12 @@ def evaluate(summary: dict[str, Any], view: dict[str, Any], config: LoadedConfig
         add("quota_conservation", "critical", "high", str(primary.get("source") or "official"),
             {"quota_used_percent": quota_used, "critical_threshold": quota_critical}, True)
 
+    burn = _number((view.get("forecast") or {}).get("burn_per_hour"))
+    exhaustion = _number((view.get("forecast") or {}).get("exhaustion_hours"))
+    if burn is not None and burn > 0 and exhaustion is not None and exhaustion <= 2:
+        add("quota_burn", "warning", "medium", str((view.get("forecast") or {}).get("confidence") or "observed"),
+            {"burn_percent_per_hour": burn, "exhaustion_hours": exhaustion})
+
     if config.get("ui.advisor.prompt_coach.enabled", False):
         for code in prompt.get("recommendation_codes") or []:
             if code in {"split_request", "add_target", "add_constraints", "add_acceptance"}:
@@ -176,8 +223,18 @@ def evaluate(summary: dict[str, Any], view: dict[str, Any], config: LoadedConfig
                     "clause_count": prompt.get("clause_count"),
                 })
 
-    items.sort(key=lambda item: (LEVEL_ORDER[item["level"]], CODE_ORDER.get(item["code"], 0)), reverse=True)
-    maximum = max(1, int(config.get("ui.advisor.max_visible", 1)))
+    if not items and not turn and not context and not primary:
+        add("insufficient_data", "info", "low", "unavailable", {"baseline_samples": int(total_stats.get("count") or 0)})
+
+    deduped: dict[str, dict[str, Any]] = {}
+    for item in items:
+        key = str(item.get("dedupe_key") or item["code"])
+        previous = deduped.get(key)
+        if previous is None or (LEVEL_ORDER[item["level"]], item["priority"]) > (LEVEL_ORDER[previous["level"]], previous["priority"]):
+            deduped[key] = item
+    items = list(deduped.values())
+    items.sort(key=lambda item: (LEVEL_ORDER[item["level"]], item["priority"], item["confidence"] == "high"), reverse=True)
+    maximum = max(1, int(config.get("ui.advisor.max_visible", 5)))
     return {"items": items[:maximum], "all_items": items, "highest": items[0]["level"] if items else None,
             "baseline": baseline}
 

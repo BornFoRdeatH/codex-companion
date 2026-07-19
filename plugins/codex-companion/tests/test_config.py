@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from codex_usage_monitor.config import ConfigError, load_config
+from codex_usage_monitor.config import ConfigError, config_preview, load_config, save_config_text, validate_config_text
 from codex_usage_monitor.cli import console_safe
 
 
@@ -44,8 +44,8 @@ class ConfigTests(unittest.TestCase):
             self.assertFalse(loaded.get("ui.advisor.prompt_coach.enabled"))
             self.assertEqual(loaded.get("ui.advisor.baseline_window"), 50)
             self.assertTrue(loaded.get("ui.focus_mode.enabled"))
-            self.assertEqual(loaded.get("ui.focus_mode.visible_turns"), 10)
-            self.assertEqual(loaded.get("ui.focus_mode.load_batch"), 10)
+            self.assertEqual(loaded.get("ui.focus_mode.visible_turns"), 3)
+            self.assertEqual(loaded.get("ui.focus_mode.load_batch"), 3)
             self.assertTrue(loaded.get("ui.focus_mode.scroll_guard"))
             self.assertEqual(loaded.get("ui.focus_mode.unknown_version_policy"), "probe")
             self.assertTrue(loaded.get("ui.widgets.enabled"))
@@ -73,6 +73,30 @@ class ConfigTests(unittest.TestCase):
             self.assertTrue(any("Unknown config key" in item for item in loaded.warnings))
             self.assertTrue(loaded.get("privacy.never_store_auth_tokens"))
             self.assertFalse(loaded.get("storage.store_prompt_text"))
+
+    def test_config_editor_rejects_protected_fields_and_previews_valid_text(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            valid = (PLUGIN_ROOT / "config.default.toml").read_text(encoding="utf-8").replace("max_visible = 5", "max_visible = 4")
+            preview = config_preview(PLUGIN_ROOT, root, valid)
+            self.assertTrue(preview["valid"])
+            self.assertIn("max_visible = 4", preview["diff"])
+            rejected = validate_config_text(PLUGIN_ROOT, root, valid.replace("never_store_prompt_contents = true", "never_store_prompt_contents = false"))
+            self.assertFalse(rejected["valid"])
+            self.assertIn("privacy.never_store_prompt_contents", rejected["immutable"])
+
+    def test_config_editor_save_creates_backup_and_keeps_invalid_text_out(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            initial = load_config(PLUGIN_ROOT, root)
+            text = initial.path.read_text(encoding="utf-8").replace("max_visible = 5", "max_visible = 3")
+            saved = save_config_text(PLUGIN_ROOT, root, text)
+            self.assertTrue(saved["saved"])
+            self.assertTrue(Path(saved["backup"]).exists())
+            self.assertIn("max_visible = 3", initial.path.read_text(encoding="utf-8"))
+            invalid = save_config_text(PLUGIN_ROOT, root, "schema_version = [")
+            self.assertFalse(invalid["valid"])
+            self.assertIn("max_visible = 3", initial.path.read_text(encoding="utf-8"))
 
     def test_future_schema_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -103,12 +127,12 @@ class ConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)
             (path / "config.toml").write_text(
-                'schema_version=1\n[ui.focus_mode]\nvisible_turns=4\nload_batch=101\nunknown_version_policy="force"\n',
+                'schema_version=1\n[ui.focus_mode]\nvisible_turns=2\nload_batch=101\nunknown_version_policy="force"\n',
                 encoding="utf-8",
             )
             loaded = load_config(PLUGIN_ROOT, path)
-            self.assertEqual(loaded.get("ui.focus_mode.visible_turns"), 10)
-            self.assertEqual(loaded.get("ui.focus_mode.load_batch"), 10)
+            self.assertEqual(loaded.get("ui.focus_mode.visible_turns"), 3)
+            self.assertEqual(loaded.get("ui.focus_mode.load_batch"), 3)
             self.assertEqual(loaded.get("ui.focus_mode.unknown_version_policy"), "probe")
             self.assertEqual(sum("ui.focus_mode" in item for item in loaded.warnings), 3)
 
@@ -122,6 +146,21 @@ class ConfigTests(unittest.TestCase):
             migrated = config_path.read_text(encoding="utf-8")
             self.assertIn("[ui.focus_mode]", migrated)
             self.assertIn("Added ui.focus_mode", "\n".join(loaded.warnings))
+
+    def test_old_focus_defaults_migrate_to_three_turns(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            config_path = path / "config.toml"
+            config_path.write_text(
+                "schema_version=1\n[ui.focus_mode]\nvisible_turns = 10\nload_batch = 10\n",
+                encoding="utf-8",
+            )
+            loaded = load_config(PLUGIN_ROOT, path)
+            self.assertEqual(loaded.get("ui.focus_mode.visible_turns"), 3)
+            self.assertEqual(loaded.get("ui.focus_mode.load_batch"), 3)
+            migrated = config_path.read_text(encoding="utf-8")
+            self.assertIn("visible_turns = 3", migrated)
+            self.assertIn("load_batch = 3", migrated)
 
     def test_chat_virtualization_alias_migrates_for_one_release(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
