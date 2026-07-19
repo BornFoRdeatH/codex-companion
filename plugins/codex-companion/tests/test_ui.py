@@ -351,6 +351,7 @@ class UiTests(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] / "ui" / "runtime.js").read_text(encoding="utf-8")
         self.assertIn("data-codex-companion-footer-actions", source)
         self.assertIn("data-codex-companion-widget-footer", source)
+        self.assertIn("mountWhenReady", source)
 
     def test_builtin_widget_uses_localized_placeholders(self) -> None:
         source = (

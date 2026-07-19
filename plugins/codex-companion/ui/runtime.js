@@ -259,5 +259,6 @@
   };
   function detectTitlebarHeight(){let height=0,count=0;for(const element of document.querySelectorAll("*")){if(count++>6000)break;const style=getComputedStyle(element);if(style.getPropertyValue("-webkit-app-region")!=="drag")continue;const rect=element.getBoundingClientRect();if(rect.top<=1&&rect.bottom>20&&rect.bottom<=80&&rect.width>innerWidth*.5)height=Math.max(height,Math.ceil(rect.bottom));}return height;}
   function opaqueColor(value){return value&&!/rgba?\([^)]*,\s*0(?:\.0+)?\s*\)/.test(value)&&value!=="transparent"?value:null;}
-  if(document.documentElement)mount();else addEventListener("DOMContentLoaded",mount,{once:true});
+  const mountWhenReady=()=>{if(window.__codexUsageRuntime?.destroy)return;const composer=document.querySelector('[contenteditable="true"]');if(!composer){setTimeout(mountWhenReady,250);return;}mount();};
+  if(document.documentElement)mountWhenReady();else addEventListener("DOMContentLoaded",mountWhenReady,{once:true});
 })();
