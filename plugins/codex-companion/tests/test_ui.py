@@ -329,7 +329,7 @@ class UiTests(unittest.TestCase):
         self.assertIn("IntersectionObserver", source)
         self.assertIn("codex-companion-handoff:", source)
         self.assertIn("pendingHandoffForMeta", source)
-        self.assertIn("pending.length===1?pending[0]:null", source)
+        self.assertIn("started+5>=created", source)
         self.assertIn("maybeCaptureHandoff", source)
         self.assertIn("__codexCompanionGitUpdate", source)
         self.assertIn("navigator.clipboard.writeText", source)
