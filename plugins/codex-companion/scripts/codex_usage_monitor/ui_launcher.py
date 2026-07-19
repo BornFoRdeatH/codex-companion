@@ -153,12 +153,13 @@ def install_launcher(plugin_root: Path, plugin_data: Path) -> list[Path]:
             f'@echo off\r\npy -3 "{bootstrap}" --restart-existing %*\r\n',
             encoding="utf-8",
         )
-        command_processor = Path(os.environ.get("COMSPEC", r"C:\Windows\System32\cmd.exe"))
+        python_gui = Path(shutil.which("pythonw") or shutil.which("pyw") or sys.executable)
+        python_gui_args = "-3 " if python_gui.name.lower() == "pyw.exe" else ""
         ps = (
             "$w=New-Object -ComObject WScript.Shell;"
             + ";".join(
-                f"$s=$w.CreateShortcut('{_ps(path)}');$s.TargetPath='{_ps(command_processor)}';"
-                f"$s.Arguments='/d /c \"\"{_ps(wrapper)}\"\"';$s.WorkingDirectory='{_ps(launcher_dir)}';"
+                f"$s=$w.CreateShortcut('{_ps(path)}');$s.TargetPath='{_ps(python_gui)}';"
+                f"$s.Arguments='{python_gui_args}\"{_ps(bootstrap)}\" --restart-existing';$s.WorkingDirectory='{_ps(launcher_dir)}';"
                 "$s.WindowStyle=7;$s.Description='Codex Companion runtime UI';$s.Save()"
                 for path in paths
             )
