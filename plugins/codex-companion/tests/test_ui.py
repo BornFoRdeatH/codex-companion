@@ -272,17 +272,17 @@ class UiTests(unittest.TestCase):
         self.assertIn("task_review_opened", source)
         self.assertIn("advisory_only", source)
         self.assertIn("taskThreadId", source)
-        self.assertIn("registerAction", source)
-        self.assertIn("registerFooterControl", source)
-        self.assertIn("invokeAction", source)
-        self.assertIn("action_requested", source)
-        self.assertIn("action_completed", source)
-        self.assertIn("data-codex-companion-footer-actions", source)
-        self.assertIn("widgetSettings", source)
-        self.assertIn("codexCompanionFeatureSettings", source)
-        self.assertIn("widgetErrors", source)
+        self.assertNotIn("registerAction", source)
+        self.assertNotIn("registerFooterControl", source)
+        self.assertNotIn("invokeAction", source)
+        self.assertNotIn("action_requested", source)
+        self.assertNotIn("action_completed", source)
+        self.assertNotIn("data-codex-companion-footer-actions", source)
+        self.assertNotIn("widgetSettings", source)
+        self.assertNotIn("codexCompanionFeatureSettings", source)
+        self.assertNotIn("widgetErrors", source)
         self.assertIn("allow-scripts", source)
-        self.assertIn("openPanel", source)
+        self.assertNotIn("openPanel", source)
         self.assertIn("CREATE_NO_WINDOW", (Path(__file__).resolve().parents[1] / "scripts" / "codex_usage_monitor" / "ui_launcher.py").read_text(encoding="utf-8"))
         self.assertIn("Timed out waiting for Codex renderer/CDP target", (Path(__file__).resolve().parents[1] / "scripts" / "codex_usage_monitor" / "ui_host.py").read_text(encoding="utf-8"))
         self.assertIn('id="controlCenter"', source)
@@ -349,6 +349,7 @@ class UiTests(unittest.TestCase):
         self.assertIn("companion_attach_disabled", source)
         self.assertIn("target_discovery", source)
         self.assertIn("stale_codex_process", source)
+        self.assertIn("runtime_attach_failed", source)
         self.assertIn("discover_version(port)", source)
         self.assertIn('self._write_status(state="error"', source)
 
@@ -379,11 +380,13 @@ class UiTests(unittest.TestCase):
         self.assertTrue(callable(codex_process_running))
         self.assertTrue(callable(restart_existing_codex))
 
-    def test_runtime_observer_ignores_companion_owned_footer_nodes(self) -> None:
+    def test_runtime_uses_stable_pre_extension_surface(self) -> None:
         source = (Path(__file__).resolve().parents[1] / "ui" / "runtime.js").read_text(encoding="utf-8")
-        self.assertIn("data-codex-companion-footer-actions", source)
-        self.assertIn("data-codex-companion-widget-footer", source)
-        self.assertIn("mountWhenReady", source)
+        self.assertNotIn("data-codex-companion-footer-actions", source)
+        self.assertNotIn("data-codex-companion-widget-footer", source)
+        self.assertNotIn("mountWhenReady", source)
+        self.assertIn("renderTaskCockpit", source)
+        self.assertIn("onWidgetMessage", source)
 
     def test_builtin_widget_uses_localized_placeholders(self) -> None:
         source = (

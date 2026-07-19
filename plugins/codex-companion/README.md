@@ -1,4 +1,4 @@
-# Codex Companion 1.3.5
+# Codex Companion 1.3.6
 
 The UI uses a compact live dock plus a responsive Control Center with Overview,
 Context Optimizer, Usage History, Handoff, Projects, Diagnostics, and Settings
@@ -267,16 +267,9 @@ Set `auto_locale = false` and `locale.language = "uk"` or `"en"` for an explicit
 
 ## Quick Actions and extension platform
 
-Checkpoint, Handoff, Review, and New task are exposed through one Action Registry. The same
-validated action can appear in the composer footer, dock, command palette, Control Center, or a
-widget action area. Actions are explicit-click only and report a technical lifecycle from request
-through completion or failure.
-
-The composer footer accepts controls through `registerFooterControl`. Widgets may register safe
-actions and controls through the sandbox SDK; the host validates IDs, placements, permissions, and
-payload sizes before registration. Built-in Task Cockpit, Budget Optimizer, and Handoff Actions are
-managed alongside local widgets in Control Center Settings. Enablement and placement are stored in
-renderer-local settings, not SQLite.
+The 1.3 Extension Platform renderer controls are paused in 1.3.6 while the Codex renderer freeze
+regression is isolated. Checkpoint, Handoff, Review, and New task remain available from the stable
+Task Cockpit and Control Center surfaces. Actions are explicit-click only and never press Send.
 
 ### Widgets
 
@@ -286,8 +279,8 @@ Widget directories are configured under `[ui.widgets]`:
 - personal: `${PLUGIN_DATA}/ui/widgets`.
 
 Each widget lives in its own directory and contains `manifest.json` schema v1 or v2. Existing v1
-widgets remain supported. Schema v2 additionally supports `composer_footer`, `control_center`,
-`actions`, `enabled_by_default`, and the sandboxed widget action API:
+widgets remain supported. Schema v2 manifests are validated by the host, but the 1.3 action SDK
+surface is paused in the renderer-safe 1.3.6 build:
 
 ```json
 {
@@ -306,15 +299,13 @@ widgets remain supported. Schema v2 additionally supports `composer_footer`, `co
 
 Supported content types are `markdown`, sanitized `html`/CSS, and sandboxed `javascript`.
 Scripted widgets run in iframes without `allow-same-origin`; CSP denies network, navigation,
-popups, forms, downloads, and filesystem access. Their capability API is limited to
-`getSnapshot`, `subscribeTelemetry`, `getTheme`, `requestResize`, `openSettings`, `registerAction`,
-`registerFooterControl`, `openPanel`, and `showNotice`. Widgets never receive prompt, assistant,
-tool, diff, or filename contents. `message_footer` and `composer_footer` widgets must be declarative.
+popups, forms, downloads, and filesystem access. The stable runtime supports snapshot, telemetry,
+theme, resize, and settings messages only. Widgets never receive prompt, assistant, tool, diff, or
+filename contents. `message_footer` and `composer_footer` widgets must be declarative.
 
-The Control Center Settings tab manages built-in features and local widgets: enablement, placement,
-ordering, and resettable local layout state. Invalid manifests are reported as unavailable widgets
-and do not prevent other widgets or the main dock from loading. Quick Actions for Checkpoint and
-Handoff are available in both the composer footer and dock; every action requires an explicit click.
+Invalid manifests are reported as unavailable widgets and do not prevent the main dock from
+loading. Quick Actions in the composer footer and dock will return after the Extension Platform is
+re-enabled in a separate stability release.
 
 ## Requirements and data sources
 
@@ -338,9 +329,13 @@ transcript, and read/write SQLite snapshots. Failed App Server starts use a five
 
 On first use, `config.default.toml` is copied to `%PLUGIN_DATA%/config.toml`. When the CLI is run
 outside a hook, it resolves the active marketplace data directory under `~/.codex/plugins/data`.
-Version 1.3.5 keeps public config `schema_version = 1`, uses internal SQLite schema v6, and adds
+Version 1.3.6 keeps public config `schema_version = 1`, uses internal SQLite schema v6, and adds
 `[ui.advisor]` plus opt-in `[ui.advisor.prompt_coach]`. Existing configs inherit
 new defaults. Unknown keys warn and invalid values fall back safely.
+
+Version 1.3.6 temporarily rolls the renderer runtime surface back to the stable 1.2.1
+implementation while the 1.3 Extension Platform freeze regression is isolated. Task Cockpit,
+Control Center, budgets, handoff, history focus, and launcher diagnostics remain available.
 
 The privacy invariants `never_store_auth_tokens`, `never_store_prompt_contents`,
 `page_dom_denied`, `message_contents_denied`, and `network_denied` cannot be disabled. Raw prompts,

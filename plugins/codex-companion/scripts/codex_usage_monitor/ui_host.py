@@ -196,6 +196,12 @@ class UiHost:
                 time.sleep(self._refresh_delay())
             except (OSError, CdpError, KeyError, json.JSONDecodeError, sqlite3.Error) as exc:
                 self._log_error(exc)
+                if isinstance(exc, CdpError) and not attached_once and str(exc).startswith("CDP timeout:"):
+                    self._write_status(
+                        state="error", phase="failed", pid=process.pid, port=port, error=str(exc),
+                        error_class="runtime_attach_failed", fingerprint=fp, elapsed_ms=_elapsed_ms(started_at),
+                    )
+                    return 4
                 self._write_status(
                     state="reconnecting", phase="target_discovery", pid=process.pid, port=port, error=str(exc),
                     error_class=type(exc).__name__, fingerprint=fp, elapsed_ms=_elapsed_ms(started_at),
