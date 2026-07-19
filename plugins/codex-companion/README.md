@@ -1,4 +1,4 @@
-# Codex Companion 1.4.3
+# Codex Companion 1.4.4
 
 The UI uses a compact live dock plus a responsive Control Center with Overview,
 Context Optimizer, Usage History, Handoff, Projects, Diagnostics, and Settings
@@ -268,7 +268,7 @@ Set `auto_locale = false` and `locale.language = "uk"` or `"en"` for an explicit
 
 ## Quick Actions and extension platform
 
-The 1.3 Extension Platform renderer controls are available but disabled by default in 1.4.3.
+The 1.3 Extension Platform renderer controls are available but disabled by default in 1.4.4.
 Checkpoint, Handoff, Review, and New task remain available from the stable Task Cockpit and Control
 Center surfaces. Enabling `handoff-actions`, `task-cockpit`, or `budget-optimizer` in Settings adds
 the corresponding quick-action surfaces. Actions are explicit-click only and never press Send.
@@ -333,7 +333,7 @@ transcript, and read/write SQLite snapshots. Failed App Server starts use a five
 
 On first use, `config.default.toml` is copied to `%PLUGIN_DATA%/config.toml`. When the CLI is run
 outside a hook, it resolves the active marketplace data directory under `~/.codex/plugins/data`.
-Version 1.4.3 keeps public config `schema_version = 1`, uses internal SQLite schema v6, and adds
+Version 1.4.4 keeps public config `schema_version = 1`, uses internal SQLite schema v6, and adds
 `[ui.advisor]` plus opt-in `[ui.advisor.prompt_coach]`. Existing configs inherit
 new defaults. Unknown keys warn and invalid values fall back safely.
 
@@ -342,7 +342,7 @@ by default. Settings uses a fresh local feature-toggle namespace, so previous 1.
 re-enable widgets accidentally. Enable one widget or feature at a time to isolate renderer issues.
 Persisted widgets are mounted only after the first live snapshot and a short startup delay, so
 enabled widgets cannot run during the initial Codex renderer load path.
-Version 1.4.3 resets the local feature-toggle namespace again so all previously enabled widgets
+Version 1.4.4 resets the local feature-toggle namespace again so all previously enabled widgets
 and extension controls start disabled for one-by-one isolation. It also makes the generated launcher
 select the newest cache by manifest semantic version rather than filesystem modification time.
 Settings also provides a full TOML editor with syntax/schema validation, protected privacy/security
