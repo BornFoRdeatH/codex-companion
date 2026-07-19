@@ -1,4 +1,4 @@
-# Codex Companion 1.3.7
+# Codex Companion 1.3.8
 
 The UI uses a compact live dock plus a responsive Control Center with Overview,
 Context Optimizer, Usage History, Handoff, Projects, Diagnostics, and Settings
@@ -267,7 +267,7 @@ Set `auto_locale = false` and `locale.language = "uk"` or `"en"` for an explicit
 
 ## Quick Actions and extension platform
 
-The 1.3 Extension Platform renderer controls are available but disabled by default in 1.3.7.
+The 1.3 Extension Platform renderer controls are available but disabled by default in 1.3.8.
 Checkpoint, Handoff, Review, and New task remain available from the stable Task Cockpit and Control
 Center surfaces. Enabling `handoff-actions`, `task-cockpit`, or `budget-optimizer` in Settings adds
 the corresponding quick-action surfaces. Actions are explicit-click only and never press Send.
@@ -332,11 +332,11 @@ transcript, and read/write SQLite snapshots. Failed App Server starts use a five
 
 On first use, `config.default.toml` is copied to `%PLUGIN_DATA%/config.toml`. When the CLI is run
 outside a hook, it resolves the active marketplace data directory under `~/.codex/plugins/data`.
-Version 1.3.7 keeps public config `schema_version = 1`, uses internal SQLite schema v6, and adds
+Version 1.3.8 keeps public config `schema_version = 1`, uses internal SQLite schema v6, and adds
 `[ui.advisor]` plus opt-in `[ui.advisor.prompt_coach]`. Existing configs inherit
 new defaults. Unknown keys warn and invalid values fall back safely.
 
-Version 1.3.7 restores the Extension Platform runtime with widgets and extension controls disabled
+Version 1.3.8 restores the Extension Platform runtime with widgets and extension controls disabled
 by default. Settings uses a fresh local feature-toggle namespace, so previous 1.3.x toggles do not
 re-enable widgets accidentally. Enable one widget or feature at a time to isolate renderer issues.
 
