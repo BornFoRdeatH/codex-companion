@@ -301,6 +301,8 @@ class UiTests(unittest.TestCase):
         self.assertIn("widgetErrors", source)
         self.assertIn("allow-scripts", source)
         self.assertIn("openPanel", source)
+        self.assertIn('type:"reload_ui"', source)
+        self.assertIn("Reload Companion UI", source)
         self.assertIn("CREATE_NO_WINDOW", (Path(__file__).resolve().parents[1] / "scripts" / "codex_usage_monitor" / "ui_launcher.py").read_text(encoding="utf-8"))
         self.assertIn("Timed out waiting for Codex renderer/CDP target", (Path(__file__).resolve().parents[1] / "scripts" / "codex_usage_monitor" / "ui_host.py").read_text(encoding="utf-8"))
         self.assertIn('id="controlCenter"', source)
@@ -359,6 +361,10 @@ class UiTests(unittest.TestCase):
         host_source = (Path(__file__).resolve().parents[1] / "scripts" / "codex_usage_monitor" / "ui_host.py").read_text(encoding="utf-8")
         for field in ("focus_state", "boundary_turn", "boundary_scroll_top", "scroll_direction", "guard_active"):
             self.assertIn(field, host_source)
+        self.assertIn("_maybe_hot_reload", host_source)
+        self.assertIn("Page.removeScriptToEvaluateOnNewDocument", host_source)
+        self.assertIn("ui.widgets.hot_reload", host_source)
+        self.assertIn('"type") == "reload_ui"', host_source)
 
     def test_ui_host_reports_codex_exit_before_attach(self) -> None:
         source = (Path(__file__).resolve().parents[1] / "scripts" / "codex_usage_monitor" / "ui_host.py").read_text(encoding="utf-8")
@@ -408,6 +414,8 @@ class UiTests(unittest.TestCase):
         self.assertIn("renderTaskCockpit", source)
         self.assertIn("onWidgetMessage", source)
         self.assertIn('placements:["composer_footer","dock","palette","control_center"]', source)
+        host_source = (Path(__file__).resolve().parents[1] / "scripts" / "codex_usage_monitor" / "ui_host.py").read_text(encoding="utf-8")
+        self.assertIn("hot_reload_diagnostics", host_source)
 
     def test_builtin_widget_uses_localized_placeholders(self) -> None:
         source = (

@@ -87,6 +87,15 @@ class UiHost:
             "exact_adapter": False, "composer": False, "new_task_anchor": False,
             "clipboard": False, "preview_capture": False, "fallback": False,
         }
+        self.hot_reload_diagnostics: dict[str, Any] = {
+            "enabled": bool(self.config.get("ui.widgets.hot_reload", False)),
+            "count": 0, "last_reload_at": None, "last_error": None, "last_signature": None,
+        }
+        self._new_document_script_id: str | None = None
+        self._runtime_signature: str | None = None
+        self._supported = False
+        self._adapter: dict[str, Any] | None = None
+        self._adapters: list[dict[str, Any]] = []
         signal.signal(signal.SIGINT, lambda *_: setattr(self, "stop", True))
         if hasattr(signal, "SIGTERM"):
             signal.signal(signal.SIGTERM, lambda *_: setattr(self, "stop", True))
@@ -119,6 +128,7 @@ class UiHost:
         adapter = match_adapter(fp, adapters)
         policy = self.config.get("ui.unknown_version_policy", "dock_only")
         supported = adapter is not None
+        self._supported, self._adapter, self._adapters = supported, adapter, adapters
         self.runtime_compatibility = "exact" if supported else "probing"
         if not supported and policy == "disable":
             self._write_status(state="unsupported", pid=process.pid, port=port, fingerprint=fp)
@@ -127,8 +137,8 @@ class UiHost:
             state="starting", phase="port_wait", pid=process.pid, port=port, fingerprint=fp, adapter=adapter,
             elapsed_ms=_elapsed_ms(started_at),
         )
-        history_focus = (self.plugin_root / "ui" / "history_focus.js").read_text(encoding="utf-8")
-        runtime = history_focus + "\n" + (self.plugin_root / "ui" / "runtime.js").read_text(encoding="utf-8")
+        runtime = self._runtime_source()
+        self._runtime_signature = self._watch_signature()
         attach_deadline = time.monotonic() + 15.0
         last_target = None
         connection: CdpConnection | None = None
@@ -187,6 +197,7 @@ class UiHost:
                     )
                 self._drain_events(connection)
                 self._push_snapshot(connection)
+                self._maybe_hot_reload(connection, supported, adapter, adapters)
                 if time.monotonic() - self._last_heartbeat >= 5.0:
                     self._write_status(
                         state="attached", phase="attached", pid=process.pid, port=port, fingerprint=fp,
@@ -239,10 +250,93 @@ class UiHost:
         connection.call("Page.enable")
         connection.call("Runtime.enable")
         connection.call("Runtime.addBinding", {"name": BINDING})
+        self._inject_runtime(connection, runtime, supported, adapter, adapters, add_new_document=True)
+
+    def _runtime_source(self) -> str:
+        history_focus = (self.plugin_root / "ui" / "history_focus.js").read_text(encoding="utf-8")
+        return history_focus + "\n" + (self.plugin_root / "ui" / "runtime.js").read_text(encoding="utf-8")
+
+    def _inject_runtime(
+        self,
+        connection: CdpConnection,
+        runtime: str,
+        supported: bool,
+        adapter: dict[str, Any] | None,
+        adapters: list[dict[str, Any]],
+        *,
+        add_new_document: bool,
+    ) -> None:
         boot = self._boot_payload(supported, adapter, adapters)
         source = f"window.__CODEX_USAGE_BOOT__={json.dumps(boot, separators=(',', ':'))};\n{runtime}"
-        connection.call("Page.addScriptToEvaluateOnNewDocument", {"source": source})
+        if add_new_document:
+            if self._new_document_script_id:
+                try:
+                    connection.call(
+                        "Page.removeScriptToEvaluateOnNewDocument",
+                        {"identifier": self._new_document_script_id},
+                        timeout=1.0,
+                    )
+                except CdpError:
+                    pass
+            result = connection.call("Page.addScriptToEvaluateOnNewDocument", {"source": source})
+            identifier = result.get("identifier") if isinstance(result, dict) else None
+            self._new_document_script_id = str(identifier) if identifier else None
         connection.call("Runtime.evaluate", {"expression": source, "awaitPromise": False})
+
+    def _watch_signature(self) -> str:
+        paths = [self.plugin_root / "ui" / "runtime.js", self.plugin_root / "ui" / "history_focus.js"]
+        if self.config.get("ui.widgets.enabled", True):
+            for directory in self.config.get("ui.widgets.directories", []):
+                root = Path(str(directory))
+                if root.is_dir():
+                    for path in root.rglob("*"):
+                        if path.is_file():
+                            paths.append(path)
+        parts: list[str] = []
+        for path in sorted(set(paths), key=lambda value: str(value).lower()):
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            parts.append(f"{stat.st_mtime_ns}:{stat.st_size}")
+        return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
+
+    def _maybe_hot_reload(
+        self,
+        connection: CdpConnection,
+        supported: bool,
+        adapter: dict[str, Any] | None,
+        adapters: list[dict[str, Any]],
+        *,
+        force: bool = False,
+    ) -> None:
+        if not self.config.get("ui.widgets.hot_reload", False):
+            return
+        signature = self._watch_signature()
+        if self._runtime_signature is None:
+            self._runtime_signature = signature
+            self.hot_reload_diagnostics["last_signature"] = signature[:12]
+            if not force:
+                return
+        if not force and signature == self._runtime_signature:
+            return
+        try:
+            runtime = self._runtime_source()
+            self._inject_runtime(connection, runtime, supported, adapter, adapters, add_new_document=True)
+            self._runtime_signature = signature
+            self.hot_reload_diagnostics.update({
+                "count": int(self.hot_reload_diagnostics.get("count") or 0) + 1,
+                "last_reload_at": time.time(),
+                "last_error": None,
+                "last_signature": signature[:12],
+            })
+            self.cockpit_events.append({"type": "runtime_reconnected", "at": time.time(), "state": "hot_reload"})
+            self.cockpit_events = self.cockpit_events[-20:]
+            self._write_status(state="attached", hot_reload=self.hot_reload_diagnostics)
+        except (OSError, CdpError, json.JSONDecodeError) as exc:
+            self.hot_reload_diagnostics["last_error"] = type(exc).__name__
+            self._log_error(exc)
+            self._write_status(state="reconnecting", error=str(exc), error_class=type(exc).__name__)
 
     def _boot_payload(
         self, supported: bool, adapter: dict[str, Any] | None, adapters: list[dict[str, Any]]
@@ -322,6 +416,12 @@ class UiHost:
                 self._respond_projects(connection, message)
             elif message.get("type") == "project_alias":
                 self._set_project_alias(connection, message)
+            elif message.get("type") == "reload_ui":
+                try:
+                    self._maybe_hot_reload(connection, self._supported, self._adapter, self._adapters, force=True)
+                except (OSError, CdpError, json.JSONDecodeError) as exc:
+                    self.hot_reload_diagnostics["last_error"] = type(exc).__name__
+                    self._log_error(exc)
             elif message.get("type") == "budget_features" and self.active_thread_id:
                 self.transient_budget_features[self.active_thread_id] = transient_features(message.get("features"))
             elif message.get("type") == "budget_action":
@@ -620,6 +720,7 @@ class UiHost:
         value.setdefault("performance", self.performance_diagnostics)
         value.setdefault("budget", self.budget_diagnostics)
         value.setdefault("handoff", self.handoff_diagnostics)
+        value.setdefault("hot_reload", self.hot_reload_diagnostics)
         temp = self.plugin_data / "ui-status.json.tmp"
         temp.write_text(json.dumps(value, indent=2), encoding="utf-8")
         temp.replace(self.plugin_data / "ui-status.json")

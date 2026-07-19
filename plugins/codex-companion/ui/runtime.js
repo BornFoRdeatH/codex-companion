@@ -216,6 +216,7 @@
       {id:"projects",label:strings.projects,run:openProjects},
       {id:"focus",label:"Focus Mode",run:()=>{boot.focusMode.enabled=boot.focusMode?.enabled===false;applyHistoryFocus();}},
       {id:"performance",label:strings.performance,run:()=>{boot.performanceConfig.enabled=boot.performanceConfig?.enabled===false;reportPerformance();}},
+      {id:"reload-ui",label:language==="uk"?"Перезавантажити UI Companion":"Reload Companion UI",run:()=>send({type:"reload_ui"})},
       {id:"advisor",label:strings.advisor,run:()=>{setDockVisible(true);advisorBanner.scrollIntoView({block:"nearest"});}},
       {id:"handoff",label:strings.handoff,run:createHandoff},
       {id:"checkpoint",label:strings.checkpoint,run:()=>createHandoff("checkpoint")},
