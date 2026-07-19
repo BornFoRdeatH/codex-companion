@@ -344,7 +344,8 @@ class UiTests(unittest.TestCase):
 
     def test_ui_host_reports_codex_exit_before_attach(self) -> None:
         source = (Path(__file__).resolve().parents[1] / "scripts" / "codex_usage_monitor" / "ui_host.py").read_text(encoding="utf-8")
-        self.assertIn("Codex exited before renderer/CDP attach", source)
+        self.assertIn("Windows Store apps may exit the launch stub", source)
+        self.assertIn("renderer/CDP target before timeout", source)
         self.assertIn('self._write_status(state="error"', source)
 
     def test_runtime_observer_ignores_companion_owned_footer_nodes(self) -> None:

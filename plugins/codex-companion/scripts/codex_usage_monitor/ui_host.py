@@ -120,13 +120,13 @@ class UiHost:
         attached_once = False
         while not self.stop:
             exit_code = process.poll()
-            if exit_code is not None:
-                if not attached_once:
-                    message = f"Codex exited before renderer/CDP attach (exit code {exit_code})"
-                    self._write_status(state="error", pid=process.pid, port=port, fingerprint=fp, error=message)
-                    self._log_error(RuntimeError(message))
-                    return 4
-                break
+            # Windows Store apps may exit the launch stub with code 0 while the
+            # single-instance renderer continues under another process.
+            if exit_code is not None and not attached_once and time.monotonic() >= attach_deadline:
+                message = f"Codex did not expose a renderer/CDP target before timeout (launch exit code {exit_code})"
+                self._write_status(state="error", pid=process.pid, port=port, fingerprint=fp, error=message)
+                self._log_error(RuntimeError(message))
+                return 4
             try:
                 target = _primary_target(discover_targets(port))
                 if not target:
