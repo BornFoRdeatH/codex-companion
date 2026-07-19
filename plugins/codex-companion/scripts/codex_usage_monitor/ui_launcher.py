@@ -63,14 +63,14 @@ def discover_codex_app(plugin_data: Path | None = None) -> Path | None:
     return result
 
 
-def launch_codex(executable: Path, port: int, restart_existing: bool = False) -> subprocess.Popen[bytes]:
+def launch_codex(
+    executable: Path, port: int, restart_existing: bool = False, attach_enabled: bool = True
+) -> subprocess.Popen[bytes]:
     if restart_existing:
         restart_existing_codex(executable)
-    command = [
-        str(executable),
-        "--remote-debugging-address=127.0.0.1",
-        f"--remote-debugging-port={port}",
-    ]
+    command = [str(executable)]
+    if attach_enabled:
+        command.extend(["--remote-debugging-address=127.0.0.1", f"--remote-debugging-port={port}"])
     kwargs: dict[str, Any] = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
     if os.name == "nt":
         kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
@@ -84,7 +84,10 @@ def restart_existing_codex(executable: Path, timeout: float = 8.0) -> int:
     if os.name != "nt":
         return 0
     target = str(executable).lower()
-    entries = [entry for entry in _windows_process_entries() if str(entry[2]).lower() == target]
+    entries = [
+        entry for entry in _windows_process_entries()
+        if str(entry[2]).lower() == target or (entry[3].lower() == "chatgpt.exe" and entry[4])
+    ]
     if not entries:
         return 0
     target_pids = {entry[0] for entry in entries}
@@ -99,10 +102,24 @@ def restart_existing_codex(executable: Path, timeout: float = 8.0) -> int:
         )
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if not any(str(entry[2]).lower() == target for entry in _windows_process_entries()):
+        remaining = [
+            entry for entry in _windows_process_entries()
+            if str(entry[2]).lower() == target or (entry[3].lower() == "chatgpt.exe" and entry[4])
+        ]
+        if not remaining:
             return len(entries)
         time.sleep(0.1)
     raise RuntimeError("The existing Codex process did not exit; close it in Task Manager and retry")
+
+
+def codex_process_running(executable: Path) -> bool:
+    if os.name != "nt":
+        return True
+    target = str(executable).lower()
+    return any(
+        str(entry[2]).lower() == target or (entry[3].lower() == "chatgpt.exe" and entry[4])
+        for entry in _windows_process_entries()
+    )
 
 
 def launcher_paths() -> list[Path]:
@@ -290,13 +307,13 @@ def _user_visible_path(path: Path, reference_data: Path | None = None) -> Path:
 
 def _windows_running_paths() -> list[Path]:
     result: list[Path] = []
-    for _, _, path in _windows_process_entries():
+    for _, _, path, _, _ in _windows_process_entries():
         if path not in result:
             result.append(path)
     return result
 
 
-def _windows_process_entries() -> list[tuple[int, int, Path]]:
+def _windows_process_entries() -> list[tuple[int, int, Path, str, bool]]:
     if os.name != "nt":
         return []
     import ctypes
@@ -314,20 +331,34 @@ def _windows_process_entries() -> list[tuple[int, int, Path]]:
     snapshot = kernel.CreateToolhelp32Snapshot(2, 0)
     entry = ProcessEntry()
     entry.dwSize = ctypes.sizeof(entry)
-    result: list[tuple[int, int, Path]] = []
+    result: list[tuple[int, int, Path, str, bool]] = []
     try:
         ok = kernel.Process32FirstW(snapshot, ctypes.byref(entry))
         while ok:
             if entry.szExeFile.lower() in {"chatgpt.exe", "codex.exe"}:
+                path = Path()
+                codex_package = False
                 handle = kernel.OpenProcess(0x1000, False, entry.th32ProcessID)
                 if handle:
                     buffer = ctypes.create_unicode_buffer(32768)
                     length = wintypes.DWORD(len(buffer))
                     if kernel.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(length)):
                         path = Path(buffer.value)
-                        if "OpenAI.Codex_" in str(path):
-                            result.append((int(entry.th32ProcessID), int(entry.th32ParentProcessID), path))
+                        codex_package = "OpenAI.Codex_" in str(path)
                     kernel.CloseHandle(handle)
+                # Some Windows Store child processes deny path lookup. Keep them as Codex
+                # candidates only when their parent is already in the discovered Codex tree.
+                parent_in_tree = any(item[0] == int(entry.th32ParentProcessID) and item[4] for item in result)
+                if codex_package or (entry.szExeFile.lower() == "chatgpt.exe" and parent_in_tree):
+                    result.append(
+                        (
+                            int(entry.th32ProcessID),
+                            int(entry.th32ParentProcessID),
+                            path,
+                            entry.szExeFile,
+                            codex_package or parent_in_tree,
+                        )
+                    )
             ok = kernel.Process32NextW(snapshot, ctypes.byref(entry))
     finally:
         kernel.CloseHandle(snapshot)

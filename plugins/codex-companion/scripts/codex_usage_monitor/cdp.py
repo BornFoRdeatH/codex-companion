@@ -19,17 +19,26 @@ class CdpError(RuntimeError):
     pass
 
 
-def discover_targets(port: int, timeout: float = 0.5) -> list[dict[str, Any]]:
+def discover_json(port: int, path: str, timeout: float = 0.5) -> Any:
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
     try:
-        connection.request("GET", "/json/list")
+        connection.request("GET", path)
         response = connection.getresponse()
         if response.status != 200:
-            raise CdpError(f"CDP discovery returned HTTP {response.status}")
-        value = json.loads(response.read().decode("utf-8"))
-        return value if isinstance(value, list) else []
+            raise CdpError(f"CDP discovery {path} returned HTTP {response.status}")
+        return json.loads(response.read().decode("utf-8"))
     finally:
         connection.close()
+
+
+def discover_version(port: int, timeout: float = 0.5) -> dict[str, Any]:
+    value = discover_json(port, "/json/version", timeout)
+    return value if isinstance(value, dict) else {}
+
+
+def discover_targets(port: int, timeout: float = 0.5) -> list[dict[str, Any]]:
+    value = discover_json(port, "/json/list", timeout)
+    return value if isinstance(value, list) else []
 
 
 @dataclass

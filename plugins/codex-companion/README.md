@@ -1,4 +1,4 @@
-# Codex Companion 1.3.4
+# Codex Companion 1.3.5
 
 The UI uses a compact live dock plus a responsive Control Center with Overview,
 Context Optimizer, Usage History, Handoff, Projects, Diagnostics, and Settings
@@ -158,6 +158,10 @@ On Windows the installed shortcut passes `--restart-existing`: it closes an exis
 Codex process tree before starting the app with its loopback DevTools port. This is required because
 Codex is single-instance and may remain running after its last visible window is closed. Direct
 `ui launch` calls remain non-destructive unless the flag is supplied explicitly.
+
+If Codex needs to be opened while the Companion renderer attach path is failing, set
+`CODEX_COMPANION_ATTACH=off` for that launch. The launcher starts Codex without CDP injection,
+writes `companion_attach_disabled` to `ui-status.json`, and exits without loading Companion UI.
 
 The stable bootstrap invokes the selected plugin through `subprocess` with an argument vector.
 This preserves Windows interpreter paths containing spaces, including
@@ -334,7 +338,7 @@ transcript, and read/write SQLite snapshots. Failed App Server starts use a five
 
 On first use, `config.default.toml` is copied to `%PLUGIN_DATA%/config.toml`. When the CLI is run
 outside a hook, it resolves the active marketplace data directory under `~/.codex/plugins/data`.
-Version 1.3.4 keeps public config `schema_version = 1`, uses internal SQLite schema v6, and adds
+Version 1.3.5 keeps public config `schema_version = 1`, uses internal SQLite schema v6, and adds
 `[ui.advisor]` plus opt-in `[ui.advisor.prompt_coach]`. Existing configs inherit
 new defaults. Unknown keys warn and invalid values fall back safely.
 

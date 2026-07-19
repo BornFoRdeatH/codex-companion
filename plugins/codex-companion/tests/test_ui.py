@@ -11,10 +11,10 @@ from unittest import mock
 
 from codex_usage_monitor.cdp import CdpError, CdpConnection
 from codex_usage_monitor.storage import Storage
-from codex_usage_monitor.ui_host import match_adapter
+from codex_usage_monitor.ui_host import _primary_target, _safe_origin, _target_summary, match_adapter
 from codex_usage_monitor.ui_launcher import (
     _bootstrap_source, _plugin_family, _user_visible_path, discover_codex_app, launch_codex, reserve_loopback_port,
-    legacy_launcher_paths, launcher_paths, restart_existing_codex,
+    codex_process_running, legacy_launcher_paths, launcher_paths, restart_existing_codex,
 )
 from codex_usage_monitor.widgets import WidgetError, load_widget_report, load_widgets, markdown_to_html, sanitize_html, validate_manifest
 
@@ -346,7 +346,38 @@ class UiTests(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] / "scripts" / "codex_usage_monitor" / "ui_host.py").read_text(encoding="utf-8")
         self.assertIn("Windows Store apps may exit the launch stub", source)
         self.assertIn("renderer/CDP target before timeout", source)
+        self.assertIn("companion_attach_disabled", source)
+        self.assertIn("target_discovery", source)
+        self.assertIn("stale_codex_process", source)
+        self.assertIn("discover_version(port)", source)
         self.assertIn('self._write_status(state="error"', source)
+
+    def test_target_summary_is_attachable_and_redacted(self) -> None:
+        targets = [
+            {"type": "page", "url": "app://codex/index.html#/secret", "webSocketDebuggerUrl": "ws://127.0.0.1:1/a"},
+            {"type": "worker", "url": "https://example.test/private/path?token=abc"},
+            {"type": "webview", "url": "file:///C:/Users/name/private.txt", "webSocketDebuggerUrl": "ws://127.0.0.1:1/b"},
+        ]
+        summary = _target_summary(targets)
+        self.assertEqual(summary["count"], 3)
+        self.assertEqual(summary["attachable"], 2)
+        self.assertIn("page", summary["types"])
+        self.assertIn("app://codex", summary["origins"])
+        self.assertNotIn("secret", json.dumps(summary))
+        self.assertNotIn("private", json.dumps(summary))
+        self.assertEqual(_primary_target(targets)["type"], "page")
+        self.assertEqual(_safe_origin("not-a-known-url-with-private-data"), "other")
+
+    def test_launcher_supports_attach_disabled_and_restart_helpers(self) -> None:
+        launcher = (Path(__file__).resolve().parents[1] / "scripts" / "codex_usage_monitor" / "ui_launcher.py").read_text(encoding="utf-8")
+        host = (Path(__file__).resolve().parents[1] / "scripts" / "codex_usage_monitor" / "ui_host.py").read_text(encoding="utf-8")
+        self.assertIn("attach_enabled: bool = True", launcher)
+        self.assertIn("if attach_enabled:", launcher)
+        self.assertIn("CODEX_COMPANION_ATTACH", host)
+        self.assertIn("codex_process_running", launcher)
+        self.assertIn("Path()", launcher)
+        self.assertTrue(callable(codex_process_running))
+        self.assertTrue(callable(restart_existing_codex))
 
     def test_runtime_observer_ignores_companion_owned_footer_nodes(self) -> None:
         source = (Path(__file__).resolve().parents[1] / "ui" / "runtime.js").read_text(encoding="utf-8")

@@ -11,10 +11,10 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .cdp import CdpConnection, CdpError, discover_targets
+from .cdp import CdpConnection, CdpError, discover_targets, discover_version
 from .config import LoadedConfig
 from .storage import Storage
-from .ui_launcher import discover_codex_app, launch_codex, reserve_loopback_port
+from .ui_launcher import codex_process_running, discover_codex_app, launch_codex, reserve_loopback_port, restart_existing_codex
 from .widgets import load_widget_report, markdown_to_html, sanitize_html
 from .render import derive
 from .advisor import evaluate as evaluate_advice
@@ -92,17 +92,29 @@ class UiHost:
             signal.signal(signal.SIGTERM, lambda *_: setattr(self, "stop", True))
 
     def run(self) -> int:
+        started_at = time.monotonic()
         executable = discover_codex_app(self.plugin_data)
         if not executable:
             self._write_status(state="error", error="Codex desktop executable not found")
             return 2
         port = reserve_loopback_port()
+        attach_enabled = os.environ.get("CODEX_COMPANION_ATTACH", "").strip().lower() not in {"0", "false", "off", "no"}
         try:
-            process = launch_codex(executable, port, self.restart_existing)
+            if self.restart_existing:
+                self._write_status(state="starting", phase="killing_existing", port=port)
+                restart_existing_codex(executable)
+            self._write_status(state="starting", phase="launching", port=port)
+            process = launch_codex(executable, port, False, attach_enabled=attach_enabled)
         except (OSError, RuntimeError) as exc:
-            self._write_status(state="error", error=str(exc))
+            self._write_status(state="error", phase="failed", error=str(exc), error_class=type(exc).__name__)
             return 2
         fp = fingerprint(executable)
+        if not attach_enabled:
+            self._write_status(
+                state="companion_attach_disabled", phase="attached_disabled", pid=process.pid, port=port,
+                fingerprint=fp, elapsed_ms=_elapsed_ms(started_at),
+            )
+            return 0
         adapters = load_adapters(self.plugin_root)
         adapter = match_adapter(fp, adapters)
         policy = self.config.get("ui.unknown_version_policy", "dock_only")
@@ -111,7 +123,10 @@ class UiHost:
         if not supported and policy == "disable":
             self._write_status(state="unsupported", pid=process.pid, port=port, fingerprint=fp)
             return 3
-        self._write_status(state="starting", pid=process.pid, port=port, fingerprint=fp, adapter=adapter)
+        self._write_status(
+            state="starting", phase="port_wait", pid=process.pid, port=port, fingerprint=fp, adapter=adapter,
+            elapsed_ms=_elapsed_ms(started_at),
+        )
         history_focus = (self.plugin_root / "ui" / "history_focus.js").read_text(encoding="utf-8")
         runtime = history_focus + "\n" + (self.plugin_root / "ui" / "runtime.js").read_text(encoding="utf-8")
         attach_deadline = time.monotonic() + 15.0
@@ -124,15 +139,30 @@ class UiHost:
             # single-instance renderer continues under another process.
             if exit_code is not None and not attached_once and time.monotonic() >= attach_deadline:
                 message = f"Codex did not expose a renderer/CDP target before timeout (launch exit code {exit_code})"
-                self._write_status(state="error", pid=process.pid, port=port, fingerprint=fp, error=message)
+                self._write_status(
+                    state="error", phase="failed", pid=process.pid, port=port, fingerprint=fp, error=message,
+                    error_class="attach_timeout", launch_exit_code=exit_code, elapsed_ms=_elapsed_ms(started_at),
+                )
                 self._log_error(RuntimeError(message))
                 return 4
             try:
-                target = _primary_target(discover_targets(port))
+                version = discover_version(port)
+                targets = discover_targets(port)
+                target_summary = _target_summary(targets)
+                self._write_status(
+                    state="starting", phase="target_discovery", pid=process.pid, port=port, fingerprint=fp,
+                    adapter=adapter, browser=str(version.get("Browser", ""))[:80], targets=target_summary,
+                    elapsed_ms=_elapsed_ms(started_at),
+                )
+                target = _primary_target(targets)
                 if not target:
                     if time.monotonic() >= attach_deadline:
-                        self._write_status(state="error", pid=process.pid, port=port, fingerprint=fp,
-                                           error="Timed out waiting for Codex renderer/CDP target")
+                        error = "stale_codex_process" if codex_process_running(executable) else "attach_timeout"
+                        self._write_status(
+                            state="error", phase="failed", pid=process.pid, port=port, fingerprint=fp,
+                            error="Timed out waiting for Codex renderer/CDP target", error_class=error,
+                            targets=target_summary, elapsed_ms=_elapsed_ms(started_at),
+                        )
                         if process.poll() is None:
                             process.terminate()
                         return 4
@@ -142,21 +172,34 @@ class UiHost:
                 if connection is None or connection.closed or target_id != last_target:
                     if connection:
                         connection.close()
+                    self._write_status(
+                        state="starting", phase="attaching", pid=process.pid, port=port, fingerprint=fp,
+                        adapter=adapter, targets=target_summary, elapsed_ms=_elapsed_ms(started_at),
+                    )
                     connection = CdpConnection(str(target["webSocketDebuggerUrl"]))
                     self._attach(connection, runtime, supported, adapter, adapters)
                     last_target = target_id
                     attached_once = True
                     attach_deadline = time.monotonic() + 15.0
-                    self._write_status(state="attached", pid=process.pid, port=port, fingerprint=fp, adapter=adapter)
+                    self._write_status(
+                        state="attached", phase="attached", pid=process.pid, port=port, fingerprint=fp,
+                        adapter=adapter, targets=target_summary, elapsed_ms=_elapsed_ms(started_at),
+                    )
                 self._drain_events(connection)
                 self._push_snapshot(connection)
                 if time.monotonic() - self._last_heartbeat >= 5.0:
-                    self._write_status(state="attached", pid=process.pid, port=port, fingerprint=fp, adapter=adapter)
+                    self._write_status(
+                        state="attached", phase="attached", pid=process.pid, port=port, fingerprint=fp,
+                        adapter=adapter, elapsed_ms=_elapsed_ms(started_at),
+                    )
                     self._last_heartbeat = time.monotonic()
                 time.sleep(self._refresh_delay())
             except (OSError, CdpError, KeyError, json.JSONDecodeError, sqlite3.Error) as exc:
                 self._log_error(exc)
-                self._write_status(state="reconnecting", pid=process.pid, port=port, error=str(exc), fingerprint=fp)
+                self._write_status(
+                    state="reconnecting", phase="target_discovery", pid=process.pid, port=port, error=str(exc),
+                    error_class=type(exc).__name__, fingerprint=fp, elapsed_ms=_elapsed_ms(started_at),
+                )
                 if connection:
                     connection.close()
                 connection = None
@@ -164,7 +207,10 @@ class UiHost:
             except Exception as exc:
                 # The UI is optional, but it must remain self-healing when renderer or schema details drift.
                 self._log_error(exc)
-                self._write_status(state="reconnecting", pid=process.pid, port=port, error=str(exc), fingerprint=fp)
+                self._write_status(
+                    state="reconnecting", phase="target_discovery", pid=process.pid, port=port, error=str(exc),
+                    error_class=type(exc).__name__, fingerprint=fp, elapsed_ms=_elapsed_ms(started_at),
+                )
                 if connection:
                     connection.close()
                 connection = None
@@ -607,9 +653,42 @@ class UiHost:
 
 
 def _primary_target(targets: list[dict[str, Any]]) -> dict[str, Any] | None:
-    pages = [target for target in targets if target.get("type") == "page" and target.get("webSocketDebuggerUrl")]
+    pages = [
+        target for target in targets
+        if target.get("type") in {"page", "webview"} and target.get("webSocketDebuggerUrl")
+    ]
     preferred = [target for target in pages if str(target.get("url", "")).startswith(("app://", "file://"))]
     return (preferred or pages or [None])[0]
+
+
+def _target_summary(targets: list[dict[str, Any]]) -> dict[str, Any]:
+    counts: dict[str, int] = {}
+    origins: list[str] = []
+    attachable = 0
+    for target in targets:
+        target_type = str(target.get("type") or "unknown")[:32]
+        counts[target_type] = counts.get(target_type, 0) + 1
+        if target.get("webSocketDebuggerUrl") and target_type in {"page", "webview"}:
+            attachable += 1
+        origin = _safe_origin(str(target.get("url") or ""))
+        if origin and origin not in origins and len(origins) < 6:
+            origins.append(origin)
+    return {"count": len(targets), "attachable": attachable, "types": counts, "origins": origins}
+
+
+def _safe_origin(url: str) -> str:
+    if not url:
+        return ""
+    for prefix in ("app://", "file://", "devtools://", "chrome://", "https://", "http://"):
+        if url.startswith(prefix):
+            rest = url[len(prefix):]
+            host = rest.split("/", 1)[0]
+            return f"{prefix}{host}"[:96]
+    return "other"
+
+
+def _elapsed_ms(started_at: float) -> int:
+    return max(0, int((time.monotonic() - started_at) * 1000))
 
 
 def _package_version(executable: Path) -> str:
