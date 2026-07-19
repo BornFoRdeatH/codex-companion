@@ -290,6 +290,8 @@ class UiTests(unittest.TestCase):
         self.assertIn('footerMenu.setAttribute("role","menu")', source)
         self.assertIn("composer_footer_menu", source)
         self.assertIn("safeWidgetPlacement", source)
+        self.assertIn("builtinAction:true", source)
+        self.assertIn('actionsForPlacement("composer_footer")', source)
         self.assertIn('stored==="composer_footer"', source)
         self.assertIn("composer_footer_disabled", source)
         self.assertIn("shouldRefreshControlCenter", source)
@@ -405,7 +407,7 @@ class UiTests(unittest.TestCase):
         self.assertIn("return settings[id]===true", source)
         self.assertIn("renderTaskCockpit", source)
         self.assertIn("onWidgetMessage", source)
-        self.assertNotIn('placements:["composer_footer"]', source)
+        self.assertIn('placements:["composer_footer","dock","palette","control_center"]', source)
 
     def test_builtin_widget_uses_localized_placeholders(self) -> None:
         source = (
